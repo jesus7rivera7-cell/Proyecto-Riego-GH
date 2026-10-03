@@ -1,0 +1,2613 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioFlow - Sistema de Riego Inteligente</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script>
+        // Configuración del tema y colores corporativos basados en image.png
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        organic: {
+                            50: '#f9f8f6',  // Fondo claro
+                            100: '#f2efe7', // Beige/crema base de la imagen
+                            200: '#efeadd', // Contenedores secundarios
+                            300: '#e3d9c3', // Bordes/sombras cálidas
+                            400: '#d1c4b4', // Desactivado/desaturado
+                            500: '#b4a18a', // Acento marrón terroso primario
+                            600: '#9b8770', // Texto de soporte
+                            700: '#7a6752', // Títulos secundarios
+                            800: '#534334', // Texto oscuro principal
+                            900: '#2d2217', // Tono negro orgánico
+                        },
+                        accent: {
+                            gold: '#ffce69',   // Amarillo/oro de la imagen
+                            green: '#7bc87b',  // LED Verde
+                            red: '#e76f51',    // LED Rojo / Bomba
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                        lcd: ['Share Tech Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/css">
+        body {
+            font-family: 'Outfit', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        /* Simulación de LCD Font */
+        .lcd-text {
+            font-family: 'Share Tech Mono', monospace;
+            text-shadow: 0 0 4px rgba(0, 0, 0, 0.15);
+            letter-spacing: 0.05em;
+        }
+
+        .lcd-glow {
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.4), 0 0 10px rgba(255, 206, 105, 0.4);
+        }
+        
+        /* Rotación del Motor de la Bomba */
+        @keyframes spin-slow {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .animate-spin-custom {
+            animation: spin-slow 0.8s linear infinite;
+        }
+        
+        /* Glows de LEDs */
+        .led-glow-green {
+            box-shadow: 0 0 15px rgba(123, 200, 123, 0.8), inset 0 2px 4px rgba(255, 255, 255, 0.5);
+        }
+        .led-glow-red {
+            box-shadow: 0 0 15px rgba(231, 111, 81, 0.8), inset 0 2px 4px rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Ocultar barra de scroll de la consola */
+        .console-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .console-scrollbar::-webkit-scrollbar-track {
+            background: #1e1b18;
+        }
+        .console-scrollbar::-webkit-scrollbar-thumb {
+            background: #473e35;
+            border-radius: 3px;
+        }
+        .console-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #ffce69;
+        }
+        
+        /* Estilos para el esquema interactivo de hardware */
+        #hw-svg-pump-fan.animate-spin-custom {
+            transform-origin: 730px 420px;
+        }
+        .code-line.active-highlight {
+            background-color: #3e342a !important;
+            border-left: 4px solid #ffce69;
+        }
+    </style>
+</head>
+<body class="bg-organic-50 text-organic-900 h-full flex flex-col transition-colors duration-200">
+
+    <!-- Alerta Crítica de Cortocircuito (Validación Antiquema RF-05) -->
+    <div id="safety-alert" class="hidden bg-red-600 text-white font-semibold py-3 px-4 shadow-lg flex items-center justify-between border-b-4 border-red-800 animate-pulse z-50">
+        <div class="flex items-center space-x-3">
+            <svg class="w-6 h-6 animate-bounce" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <span><strong>¡ALERTA DE SEGURIDAD ELÉCTRICA!</strong> Se ha detectado una sobrecorriente crítica en el Pin D9. Falta la resistencia limitadora (220&Omega;). ¡Peligro de quemar el pin del microcontrolador!</span>
+        </div>
+        <button onclick="toggleResistorProtection()" class="bg-white text-red-700 px-3 py-1 rounded text-xs font-bold shadow hover:bg-organic-100 transition">CORREGIR CONEXIÓN</button>
+    </div>
+
+    <!-- Header / Barra de Navegación -->
+    <header class="bg-organic-100 border-b border-organic-300 px-6 py-4 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0 shadow-sm transition-colors duration-200 dark:bg-organic-900 dark:border-organic-800 dark:text-organic-50">
+        <div class="flex items-center space-x-3">
+            <!-- Icono SVG Planta -->
+            <div class="p-2 bg-organic-500 rounded-xl text-white shadow-md">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18M12 3c-1.5 0-3.5 1-4.5 2.5S6.5 9 6.5 11c0 2 1.5 4 4.5 6s4.5-4 4.5-6c0-2-1-4-2-5.5S13.5 3 12 3z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight">BioFlow</h1>
+                <p class="text-xs text-organic-600 dark:text-organic-400">Riego Inteligente con Simulación de Hardware</p>
+            </div>
+        </div>
+
+        <!-- Pestañas de Navegación -->
+        <nav class="flex space-x-1 bg-organic-200 p-1 rounded-xl text-sm font-medium dark:bg-organic-800">
+            <button onclick="switchTab('dashboard')" id="btn-tab-dashboard" class="px-4 py-2 rounded-lg bg-white text-organic-900 shadow-sm font-semibold transition dark:bg-organic-700 dark:text-white">Dashboard</button>
+            <button onclick="switchTab('simulator')" id="btn-tab-simulator" class="px-4 py-2 rounded-lg text-organic-600 hover:text-organic-900 transition dark:text-organic-400 dark:hover:text-white">Simulador Físico</button>
+            <button onclick="switchTab('firmware')" id="btn-tab-firmware" class="px-4 py-2 rounded-lg text-organic-600 hover:text-organic-900 transition dark:text-organic-400 dark:hover:text-white">Firmware C++</button>
+            <button onclick="switchTab('guidelines')" id="btn-tab-guidelines" class="px-4 py-2 rounded-lg text-organic-600 hover:text-organic-900 transition dark:text-organic-400 dark:hover:text-white">Guía Antiquema</button>
+        </nav>
+
+        <!-- Controles de Estado y Tema -->
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2 bg-organic-200 dark:bg-organic-855 p-1.5 rounded-xl text-xs font-semibold text-organic-850 dark:text-organic-100 border border-organic-300 dark:border-organic-800 shadow-sm">
+                <span class="text-organic-600 dark:text-organic-400">Simulación:</span>
+                <select id="connection-mode" onchange="changeConnectionMode()" class="bg-white dark:bg-organic-700 text-organic-900 dark:text-white px-2 py-0.5 rounded-lg border-none focus:ring-1 focus:ring-organic-500 cursor-pointer text-xs outline-none font-sans font-bold">
+                    <option value="embedded">Local (Navegador)</option>
+                    <option value="python">Python API (Puerto 5000)</option>
+                </select>
+                <span id="api-status-dot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 ml-1"></span>
+            </div>
+            <!-- Botón Dark/Light Mode -->
+            <button onclick="toggleDarkMode()" class="p-2 bg-organic-200 rounded-xl hover:bg-organic-300 transition dark:bg-organic-800 dark:hover:bg-organic-700 text-organic-800 dark:text-organic-200" title="Alternar modo oscuro/claro">
+                <svg id="sun-icon" class="w-5 h-5 hidden dark:block text-accent-gold" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+                </svg>
+                <svg id="moon-icon" class="w-5 h-5 dark:hidden text-organic-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="flex-grow p-6 overflow-y-auto max-w-7xl mx-auto w-full">
+
+        <!-- ================= TAB: DASHBOARD ================= -->
+        <section id="tab-dashboard" class="space-y-6">
+            <!-- Card de Simulación de Tiempo y Clima -->
+            <div class="bg-white/80 dark:bg-organic-900/80 backdrop-blur-md rounded-2xl p-6 border border-organic-200 dark:border-organic-800 shadow-sm transition-all duration-300">
+                <div class="flex flex-col lg:flex-row justify-between items-stretch gap-6">
+                    <!-- Columna 1: Reloj y Fecha -->
+                    <div class="flex flex-col justify-between space-y-4 lg:w-1/3">
+                        <div class="flex items-center space-x-3">
+                            <!-- Icono de Reloj Animado -->
+                            <div class="p-2 bg-organic-500 rounded-xl text-white shadow-md">
+                                <svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg dark:text-white">Clima y Tiempo</h3>
+                                <p class="text-xs text-organic-600 dark:text-organic-400">Control temporal para fluctuaciones climáticas</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Pantalla del Reloj Virtual -->
+                        <div class="bg-organic-100 dark:bg-organic-850 p-4 rounded-xl flex items-center justify-between border border-organic-200 dark:border-organic-800 shadow-inner">
+                            <div class="space-y-1">
+                                <div id="sim-clock-time" class="text-3xl font-mono font-bold tracking-widest text-organic-800 dark:text-organic-100">12:00:00</div>
+                                <div id="sim-clock-date" class="text-xs font-semibold text-organic-600 dark:text-organic-400">01 de Agosto de 2026</div>
+                            </div>
+                            <div class="flex flex-col items-end space-y-1">
+                                <span id="sim-clock-season" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                    ☀️ Verano
+                                </span>
+                                <!-- Icono Sol/Luna Dinámico -->
+                                <span id="sim-clock-sky" class="text-2xl">☀️</span>
+                            </div>
+                        </div>
+                        <!-- Estado del Clima (Física de Python) -->
+                        <div id="weather-status-box" class="flex items-center space-x-3 p-3 bg-organic-100 dark:bg-organic-850 border border-organic-200 dark:border-organic-800 rounded-xl shadow-inner mt-2">
+                            <span id="weather-status-icon" class="text-2xl">☀️</span>
+                            <div class="flex-grow">
+                                <div id="weather-status-name" class="text-sm font-bold text-organic-800 dark:text-organic-100">Soleado / Despejado</div>
+                                <div id="weather-status-desc" class="text-[10px] text-organic-600 dark:text-organic-400">Cielo completamente despejado, sol directo.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna 2: Modo y Velocidad -->
+                    <div class="flex flex-col justify-between space-y-4 lg:w-1/3">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-organic-600 dark:text-organic-300 mb-2">Modo del Tiempo</label>
+                            <div class="grid grid-cols-2 gap-2 bg-organic-100 dark:bg-organic-800 p-1 rounded-xl">
+                                <button id="btn-time-real" onclick="setTimeMode('real')" class="py-2 px-3 text-xs font-bold rounded-lg transition-all bg-white text-organic-900 shadow-sm dark:bg-organic-700 dark:text-white">
+                                    ⏱️ Tiempo Real
+                                </button>
+                                <button id="btn-time-sim" onclick="setTimeMode('simulated')" class="py-2 px-3 text-xs font-bold rounded-lg transition-all text-organic-600 dark:text-organic-400">
+                                    🔄 Simulado
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-organic-600 dark:text-organic-300 mb-2">Velocidad de Simulación</label>
+                            <div class="flex justify-between items-center bg-organic-100 dark:bg-organic-800 p-1 rounded-xl space-x-1" id="speed-selector">
+                                <button onclick="setSimSpeed(0)" id="btn-speed-pause" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg text-organic-600 dark:text-organic-400 hover:bg-organic-200 dark:hover:bg-organic-700 transition" title="Pausar tiempo">⏸️ Pausa</button>
+                                <button onclick="setSimSpeed(1)" id="btn-speed-1x" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg text-organic-600 dark:text-organic-400 hover:bg-organic-200 dark:hover:bg-organic-700 transition" title="1 segundo = 1 segundo">1x</button>
+                                <button onclick="setSimSpeed(60)" id="btn-speed-60x" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg text-organic-600 dark:text-organic-400 hover:bg-organic-200 dark:hover:bg-organic-700 transition" title="1 segundo = 1 minuto">60x</button>
+                                <button onclick="setSimSpeed(3600)" id="btn-speed-3600x" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg bg-white text-organic-900 shadow-sm dark:bg-organic-700 dark:text-white transition" title="1 segundo = 1 hora">3600x</button>
+                                <button onclick="setSimSpeed(86400)" id="btn-speed-86400x" class="flex-1 py-1.5 text-[10px] font-bold rounded-lg text-organic-600 dark:text-organic-400 hover:bg-organic-200 dark:hover:bg-organic-700 transition" title="1 segundo = 1 día">86400x</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna 3: Controles del Entorno / Overrides -->
+                    <div class="flex flex-col justify-between space-y-4 lg:w-1/3">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-organic-600 dark:text-organic-300 mb-2">Estación del Año (Modo Simulado)</label>
+                            <div class="grid grid-cols-4 gap-1" id="season-selector">
+                                <button onclick="setSimSeason('spring')" id="btn-season-spring" class="py-1.5 text-[10px] font-bold rounded-lg border border-organic-200 text-organic-600 dark:border-organic-700 dark:text-organic-400 hover:bg-organic-50 dark:hover:bg-organic-850">🌸 Pri</button>
+                                <button onclick="setSimSeason('summer')" id="btn-season-summer" class="py-1.5 text-[10px] font-bold rounded-lg bg-organic-500 text-white shadow-sm border border-organic-500">☀️ Ver</button>
+                                <button onclick="setSimSeason('autumn')" id="btn-season-autumn" class="py-1.5 text-[10px] font-bold rounded-lg border border-organic-200 text-organic-600 dark:border-organic-700 dark:text-organic-400 hover:bg-organic-50 dark:hover:bg-organic-850">🍁 Oto</button>
+                                <button onclick="setSimSeason('winter')" id="btn-season-winter" class="py-1.5 text-[10px] font-bold rounded-lg border border-organic-200 text-organic-600 dark:border-organic-700 dark:text-organic-400 hover:bg-organic-50 dark:hover:bg-organic-850">❄️ Inv</button>
+                            </div>
+                        </div>
+
+                        <!-- Overrides y Scrubbing de Hora -->
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <label class="text-[10px] font-bold uppercase tracking-wider text-organic-600 dark:text-organic-300">Desplazar hora (Simulado)</label>
+                                <span id="lbl-scrub-hour" class="text-[10px] font-mono font-bold text-organic-850 dark:text-organic-100">12:00</span>
+                            </div>
+                            <input type="range" id="slider-scrub-hour" min="0" max="23" value="12" step="1" oninput="scrubHour()" class="w-full h-1.5 bg-organic-100 rounded-lg appearance-none cursor-pointer accent-organic-500 dark:bg-organic-700">
+                            
+                            <div class="flex justify-between items-center pt-1 border-t border-organic-100 dark:border-organic-800">
+                                <span class="text-[10px] font-bold uppercase tracking-wider text-organic-600 dark:text-organic-300">Control Manual de Clima</span>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="climate-override-toggle" class="sr-only peer" onchange="toggleClimateOverride()">
+                                    <div class="w-9 h-5 bg-organic-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-organic-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-organic-500"></div>
+                                </label>
+                            </div>
+                            <div id="weather-event-override-panel" class="pt-2 border-t border-organic-100 dark:border-organic-800 space-y-1">
+                                <label class="block text-[9px] font-bold uppercase tracking-wider text-organic-600 dark:text-organic-300 mb-1">Forzar Evento Climático</label>
+                                <div class="grid grid-cols-5 gap-1">
+                                    <button onclick="forceWeatherEvent('DESPEJADO')" id="btn-weather-despejado" class="py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition" title="Soleado">☀️</button>
+                                    <button onclick="forceWeatherEvent('NUBLADO')" id="btn-weather-nublado" class="py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition" title="Nublado">☁️</button>
+                                    <button onclick="forceWeatherEvent('LLOVIZNA')" id="btn-weather-llovizna" class="py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition" title="Llovizna">🌧️</button>
+                                    <button onclick="forceWeatherEvent('TORMENTA')" id="btn-weather-tormenta" class="py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition" title="Tormenta">⛈️</button>
+                                    <button onclick="forceWeatherEvent('OLA_DE_CALOR')" id="btn-weather-ola-de-calor" class="py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition" title="Ola de Calor">🔥</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fila de Tarjetas (Sensores y Actuador) -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Humedad del Suelo -->
+                <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm flex items-center justify-between dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                    <div class="space-y-2">
+                        <span class="text-xs font-semibold text-organic-600 uppercase tracking-wider dark:text-organic-400">Humedad de Suelo (A0)</span>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="txt-humidity" class="text-3xl font-bold">45</span>
+                            <span class="text-lg font-medium text-organic-600 dark:text-organic-400">%</span>
+                        </div>
+                        <span id="lbl-humidity" class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Adecuada</span>
+                    </div>
+                    <!-- Gráfico circular SVG de progreso -->
+                    <div class="relative w-16 h-16">
+                        <svg class="w-full h-full transform -rotate-90">
+                            <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="4" class="text-organic-100 dark:text-organic-700" fill="transparent"/>
+                            <circle id="circle-humidity" cx="32" cy="32" r="28" stroke="#b4a18a" stroke-width="4" stroke-dasharray="175.9" stroke-dashoffset="87.9" fill="transparent"/>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center text-organic-500">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Temperatura -->
+                <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm flex items-center justify-between dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                    <div class="space-y-2">
+                        <span class="text-xs font-semibold text-organic-600 uppercase tracking-wider dark:text-organic-400">Temperatura (A1)</span>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="txt-temperature" class="text-3xl font-bold">24.5</span>
+                            <span class="text-lg font-medium text-organic-600 dark:text-organic-400">°C</span>
+                        </div>
+                        <span id="lbl-temperature" class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">Templado</span>
+                    </div>
+                    <div class="text-organic-400 dark:text-organic-600">
+                        <svg class="w-12 h-12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a3 3 0 00-3-3H4a3 3 0 00-3 3v6a3 3 0 003 3h2a3 3 0 003-3zm0 0V9a3 3 0 013-3h2a3 3 0 013 3v10m-6 0a3 3 0 003 3h2a3 3 0 003-3m0 0V5a3 3 0 013-3h2a3 3 0 013 3v14a3 3 0 01-3 3h-2a3 3 0 01-3-3z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Luminosidad -->
+                <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm flex items-center justify-between dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                    <div class="space-y-2">
+                        <span class="text-xs font-semibold text-organic-600 uppercase tracking-wider dark:text-organic-400">Luz Solar (A2)</span>
+                        <div class="flex items-baseline space-x-1">
+                            <span id="txt-light" class="text-3xl font-bold">60</span>
+                            <span class="text-lg font-medium text-organic-600 dark:text-organic-400">%</span>
+                        </div>
+                        <span id="lbl-light" class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 font-medium">Semisombra</span>
+                    </div>
+                    <div class="text-accent-gold">
+                        <svg class="w-12 h-12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Bomba de Agua / Relé -->
+                <div id="pump-card" class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm flex items-center justify-between transition dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                    <div class="space-y-2">
+                        <span class="text-xs font-semibold text-organic-600 uppercase tracking-wider dark:text-organic-400">Bomba de Agua (Relé D7)</span>
+                        <div class="flex items-center space-x-2">
+                            <span id="txt-pump-state" class="text-2xl font-bold">APAGADO</span>
+                            <span id="led-pump-pulse" class="inline-block w-3 h-3 rounded-full bg-organic-400"></span>
+                        </div>
+                        <p class="text-xs text-organic-600 dark:text-organic-400">Carga: Motor DC virtual</p>
+                    </div>
+                    <!-- Icono Animado del Motor de la Bomba -->
+                    <div id="motor-graphic-container" class="p-3 bg-organic-100 rounded-full text-organic-400 transition dark:bg-organic-700">
+                        <svg id="svg-motor-fan" class="w-10 h-10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <!-- Motor rotor design -->
+                            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                            <path stroke-linecap="round" d="M12 2v7M12 15v7M2 12h7M15 12h7M5 5l5 5M14 14l5 5M5 19l5-5M14 10l5-5"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gráfico de Historial e Panel de Control Rápido -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Gráfico de Telemetría Real-Time (2/3 ancho) -->
+                <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm lg:col-span-2 flex flex-col justify-between dark:bg-organic-800 dark:border-organic-700">
+                    <div class="flex justify-between items-center mb-4">
+                        <div>
+                            <h3 class="font-bold text-lg dark:text-white">Historial de Telemetría</h3>
+                            <p class="text-xs text-organic-600 dark:text-organic-400">Lecturas simuladas en tiempo real</p>
+                        </div>
+                        <span class="text-xs font-mono text-organic-500 bg-organic-100 dark:bg-organic-700 px-2 py-1 rounded">Muestreo: 1s</span>
+                    </div>
+                    <div class="h-64 relative">
+                        <canvas id="telemetryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Panel de Control y Configuración del Sistema (1/3 ancho) -->
+                <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm flex flex-col justify-between dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                    <h3 class="font-bold text-lg mb-4">Panel de Control de Riego</h3>
+                    
+                    <div class="space-y-4 flex-grow">
+                        <!-- Switch de Modo (Auto / Manual) -->
+                        <div class="bg-organic-100 p-4 rounded-xl dark:bg-organic-700 transition">
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-organic-600 mb-2 dark:text-organic-300">Modo de Operación</label>
+                            <div class="flex items-center justify-between">
+                                <span id="txt-mode-label" class="font-bold text-sm">Automático (Firmware)</span>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="mode-toggle" class="sr-only peer" onchange="toggleIrrigationMode()">
+                                    <div class="w-11 h-6 bg-organic-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-organic-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-organic-500"></div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Botón de Control Manual de Bomba -->
+                        <div class="space-y-2">
+                            <label class="block text-xs font-semibold uppercase tracking-wider text-organic-600 dark:text-organic-300">Control Manual de Actuador</label>
+                            <button id="btn-manual-pump" disabled onclick="toggleManualPump()" class="w-full py-3 px-4 bg-organic-300 text-organic-600 font-bold rounded-xl shadow-sm transition flex items-center justify-center space-x-2 cursor-not-allowed">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                </svg>
+                                <span id="txt-btn-manual">ACTIVAR RIEGO MANUAL</span>
+                            </button>
+                            <p id="tip-manual" class="text-center text-[10px] text-organic-600 dark:text-organic-400">Habilita el modo Manual para controlar directamente la bomba.</p>
+                        </div>
+
+                        <!-- Switch de Validación Eléctrica Antiquema -->
+                        <div class="border-t border-organic-200 pt-4 space-y-2 dark:border-organic-700">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <span class="text-xs font-semibold uppercase tracking-wider text-organic-600 block dark:text-organic-300">Protección Eléctrica LED (D9)</span>
+                                    <span class="text-[10px] text-organic-500 block">Simular resistor limitador de 330&Omega;</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="resistor-toggle" checked class="sr-only peer" onchange="toggleResistorProtection()">
+                                    <div class="w-11 h-6 bg-red-500 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-red-500 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB: SIMULATOR ================= -->
+        <section id="tab-simulator" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Entradas de Sensores Virtuales (Columna izquierda: 4/12) -->
+            <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm lg:col-span-4 space-y-6 dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                <div>
+                    <h3 class="font-bold text-lg">Entorno de Simulación</h3>
+                    <p class="text-xs text-organic-600 dark:text-organic-400">Modifica los valores analógicos de los sensores con los potenciómetros virtuales.</p>
+                </div>
+
+                <!-- Control Humedad (A0) -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                        <label class="font-semibold flex items-center space-x-1">
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-organic-500"></span>
+                            <span>Humedad del Suelo (Higrómetro - A0)</span>
+                        </label>
+                        <span class="font-mono font-bold" id="lbl-sim-hum">45%</span>
+                    </div>
+                    <input type="range" id="slider-hum" min="0" max="100" value="45" oninput="updateSimulatedValues()" class="w-full h-2 bg-organic-100 rounded-lg appearance-none cursor-pointer accent-organic-500 dark:bg-organic-700">
+                    <div class="flex justify-between text-[10px] text-organic-600 dark:text-organic-400 font-mono">
+                        <span>Seco (0 - 0V)</span>
+                        <span>Límite Riego (40%)</span>
+                        <span>Saturado (100 - 5V)</span>
+                    </div>
+                </div>
+
+                <!-- Control Temperatura (A1) -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                        <label class="font-semibold flex items-center space-x-1">
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                            <span>Temperatura (TMP36 - A1)</span>
+                            <span id="lbl-temp-auto-status" class="text-[9px] text-organic-500 dark:text-organic-400 font-semibold bg-organic-100 dark:bg-organic-700 px-1.5 py-0.5 rounded ml-2">🕒 Tiempo</span>
+                        </label>
+                        <span class="font-mono font-bold" id="lbl-sim-temp">24.5 °C</span>
+                    </div>
+                    <!-- TMP36 típicamente mapeado de -40 a 125 -->
+                    <input type="range" id="slider-temp" min="-40" max="125" value="25" oninput="updateSimulatedValues()" class="w-full h-2 bg-organic-100 rounded-lg appearance-none cursor-pointer accent-amber-500 dark:bg-organic-700">
+                    <div class="flex justify-between text-[10px] text-organic-600 dark:text-organic-400 font-mono">
+                        <span>Congelación (-40°C)</span>
+                        <span>Ambiente (25°C)</span>
+                        <span>Máximo (125°C)</span>
+                    </div>
+                </div>
+
+                <!-- Control Luz (A2) -->
+                <div class="space-y-2">
+                    <div class="flex justify-between text-sm">
+                        <label class="font-semibold flex items-center space-x-1">
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-accent-gold"></span>
+                            <span>Luminosidad (Fotorresistencia LDR - A2)</span>
+                            <span id="lbl-light-auto-status" class="text-[9px] text-organic-500 dark:text-organic-400 font-semibold bg-organic-100 dark:bg-organic-700 px-1.5 py-0.5 rounded ml-2">🕒 Tiempo</span>
+                        </label>
+                        <span class="font-mono font-bold" id="lbl-sim-light">60%</span>
+                    </div>
+                    <input type="range" id="slider-light" min="0" max="100" value="60" oninput="updateSimulatedValues()" class="w-full h-2 bg-organic-100 rounded-lg appearance-none cursor-pointer accent-accent-gold dark:bg-organic-700">
+                    <div class="flex justify-between text-[10px] text-organic-600 dark:text-organic-400 font-mono">
+                        <span>Oscuridad (0%)</span>
+                        <span>Sombra</span>
+                        <span>Sol Directo (100%)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actuadores de Hardware Virtuales (Columna central: 8/12) -->
+            <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm lg:col-span-8 flex flex-col justify-between dark:bg-organic-800 dark:border-organic-700 dark:text-white">
+                <div>
+                    <h3 class="font-bold text-lg">Actuadores y Retroalimentación</h3>
+                    <p class="text-xs text-organic-600 dark:text-organic-400">Respuesta lógica y eléctrica en tiempo real de los periféricos.</p>
+                </div>
+
+                <!-- Fila de LCD y LEDs -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 my-6">
+                    <!-- Pantalla LCD 16x2 I2C Virtual (2/3 de esta fila en md) -->
+                    <div class="md:col-span-2 bg-[#8fa93c] border-4 border-[#333b11] rounded-lg p-4 font-lcd text-[#171f05] lcd-glow transition-all duration-300 flex flex-col justify-between h-32 select-none">
+                        <!-- Retroiluminación simulada con colores de cristal líquido -->
+                        <div class="text-lg tracking-widest uppercase font-bold flex flex-col justify-center h-full space-y-1">
+                            <div class="lcd-text" id="lcd-line1">H:45%  T:24.5C</div>
+                            <div class="lcd-text" id="lcd-line2">RIEGO: APAGADO</div>
+                        </div>
+                        <div class="text-[9px] text-[#2c3d0b] text-right font-sans font-semibold">LCD 16x2 I2C (Dirección 0x27)</div>
+                    </div>
+
+                    <!-- LEDs Indicadores de Diagnóstico -->
+                    <div class="bg-organic-100 rounded-xl p-4 flex flex-col justify-around items-center dark:bg-organic-700 border border-organic-200 dark:border-organic-600">
+                        <span class="text-xs font-bold text-organic-600 dark:text-organic-300">LEDs de Estado</span>
+                        <div class="flex space-x-6">
+                            <!-- LED Verde: Humedad OK -->
+                            <div class="flex flex-col items-center space-y-1">
+                                <div id="led-green-visual" class="w-6 h-6 rounded-full bg-organic-300 border border-organic-400 transition duration-200"></div>
+                                <span class="text-[9px] font-semibold text-organic-600 dark:text-organic-300">OK (Pin 8)</span>
+                            </div>
+                            <!-- LED Rojo: Alerta/Bomba -->
+                            <div class="flex flex-col items-center space-y-1">
+                                <div id="led-red-visual" class="w-6 h-6 rounded-full bg-organic-300 border border-organic-400 transition duration-200"></div>
+                                <span class="text-[9px] font-semibold text-organic-600 dark:text-organic-300">Riego (Pin 9)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fila de Relé y Motor de la Bomba -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Módulo Relé de Potencia -->
+                    <div class="bg-organic-100 rounded-xl p-4 dark:bg-organic-700 flex items-center space-x-4 border border-organic-200 dark:border-organic-600">
+                        <!-- Relé Visual -->
+                        <div id="rele-box" class="w-16 h-20 bg-blue-800 border-2 border-blue-950 rounded p-1 text-white flex flex-col justify-between text-[8px] font-mono shadow transition-colors duration-300">
+                            <span class="font-bold text-[9px] text-center border-b border-blue-900">RELÉ (D7)</span>
+                            <div class="flex flex-col space-y-0.5 select-none">
+                                <div class="flex justify-between"><span class="text-gray-400">IN:</span><span id="rele-led-in" class="w-2.5 h-2.5 rounded-full bg-red-950"></span></div>
+                                <div class="flex justify-between"><span>COM:</span><span>●</span></div>
+                                <div class="flex justify-between"><span id="rele-contact-no">NA: ──</span><span></span></div>
+                            </div>
+                        </div>
+                        <div class="flex-grow space-y-1">
+                            <h4 class="text-sm font-bold">Relé de Aislamiento</h4>
+                            <p class="text-xs text-organic-600 dark:text-organic-400">Separa eléctricamente la lógica (5V) de la carga inductiva del motor (Batería externa).</p>
+                            <span id="rele-state-badge" class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-organic-300 text-organic-700">ABIERTO (D7 = LOW)</span>
+                        </div>
+                    </div>
+
+                    <!-- Motor de la Bomba de Agua -->
+                    <div class="bg-organic-100 rounded-xl p-4 dark:bg-organic-700 flex items-center space-x-4 border border-organic-200 dark:border-organic-600">
+                        <div id="sim-motor-fan" class="p-3 bg-white rounded-full text-organic-400 dark:bg-organic-800 border-2 border-organic-300 dark:border-organic-600 transition">
+                            <svg id="svg-sim-fan" class="w-12 h-12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                                <path stroke-linecap="round" d="M12 2v7M12 15v7M2 12h7M15 12h7M5 5l5 5M14 14l5 5M5 19l5-5M14 10l5-5"/>
+                            </svg>
+                        </div>
+                        <div class="space-y-1">
+                            <h4 class="text-sm font-bold">Bomba de Agua (Carga)</h4>
+                            <p class="text-xs text-organic-600 dark:text-organic-400">Motor DC que succiona agua. Velocidad nominal: 3200 RPM con alimentación externa.</p>
+                            <span id="motor-state-badge" class="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-organic-300 text-organic-700">DETENIDO</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB: FIRMWARE ================= -->
+        <section id="tab-firmware" class="hidden space-y-6">
+            <div class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm dark:bg-organic-800 dark:border-organic-700 dark:text-white flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
+                <div>
+                    <h3 class="font-bold text-lg">Firmware del Microcontrolador (C++ / Arduino)</h3>
+                    <p class="text-xs text-organic-600 dark:text-organic-400">Código optimizado sin delays para Tinkercad Circuits.</p>
+                </div>
+                <div class="flex space-x-3">
+                    <button onclick="copyFirmware()" class="px-4 py-2 bg-organic-200 hover:bg-organic-300 text-organic-800 rounded-xl text-sm font-semibold transition dark:bg-organic-700 dark:text-white dark:hover:bg-organic-600 flex items-center space-x-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
+                        </svg>
+                        <span>Copiar Código</span>
+                    </button>
+                    <a href="firmware.ino" download="firmware.ino" class="px-4 py-2 bg-organic-500 hover:bg-organic-600 text-white rounded-xl text-sm font-semibold transition flex items-center space-x-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        <span>Descargar .ino</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Contenedor Interactivo de Hardware y Firmware -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Columna Izquierda: Esquema Interactivo de Hardware (Inspired by image4.png) -->
+                <div class="lg:col-span-6 flex flex-col space-y-6">
+                    <div class="bg-white rounded-2xl p-6 border border-organic-200 shadow-sm dark:bg-organic-800 dark:border-organic-700 dark:text-white flex-grow flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-center mb-4">
+                                <h4 class="font-bold text-base flex items-center space-x-2">
+                                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-organic-500 animate-pulse"></span>
+                                    <span>Esquema de Hardware Interactivo</span>
+                                </h4>
+                                <span class="text-[10px] bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300 px-2 py-0.5 rounded font-mono">Conexiones Seguras (Antiquema)</span>
+                            </div>
+                            <p class="text-xs text-organic-600 dark:text-organic-400 mb-6">
+                                Haz clic en cualquier componente o pin del circuito para explorar su cableado físico, parámetros en tiempo real y el código C++ asociado.
+                            </p>
+                        </div>
+
+                        <!-- Diagrama de Circuito en SVG -->
+                        <div class="relative w-full aspect-[4/3] bg-organic-50 dark:bg-organic-900 rounded-xl border border-organic-200 dark:border-organic-700 flex items-center justify-center p-4 overflow-hidden select-none">
+                            <svg class="w-full h-full" viewBox="0 0 800 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Definiciones de filtros para sombras y glows -->
+                                <defs>
+                                    <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
+                                        <feGaussianBlur stdDeviation="8" result="blur" />
+                                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                    </filter>
+                                    <filter id="glow-red" x="-20%" y="-20%" width="140%" height="140%">
+                                        <feGaussianBlur stdDeviation="8" result="blur" />
+                                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                    </filter>
+                                    <filter id="glow-gold" x="-20%" y="-20%" width="140%" height="140%">
+                                        <feGaussianBlur stdDeviation="6" result="blur" />
+                                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                    </filter>
+                                </defs>
+
+                                <!-- Cables de conexión estructurados (líneas vectoriales limpias) -->
+                                <!-- Cable Humedad (A0) - Azul -->
+                                <path d="M 110 450 L 110 480 L 320 480 L 320 430" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-blue-400 cursor-pointer" onclick="selectHardwareComponent('higrometro')"/>
+                                <!-- Cable Temperatura (A1) - Naranja -->
+                                <path d="M 250 450 L 250 495 L 340 495 L 340 430" stroke="#f97316" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-orange-400 cursor-pointer" onclick="selectHardwareComponent('tmp36')"/>
+                                <!-- Cable LDR (A2) - Amarillo -->
+                                <path d="M 380 450 L 380 470 L 360 470 L 360 430" stroke="#eab308" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-yellow-400 cursor-pointer" onclick="selectHardwareComponent('ldr')"/>
+                                
+                                <!-- Cable LCD (I2C A4/A5) - Morado -->
+                                <path d="M 400 140 L 400 240 L 420 240 L 420 430" stroke="#a855f7" stroke-width="3" stroke-dasharray="4,4" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-purple-400 cursor-pointer" onclick="selectHardwareComponent('lcd')"/>
+                                
+                                <!-- Cable Rele D7 - Rojo Potencia -->
+                                <path d="M 370 240 L 370 210 L 530 210 L 530 390 L 580 390" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-red-400 cursor-pointer" onclick="selectHardwareComponent('bomba')"/>
+                                <!-- Cable Bomba a Relé -->
+                                <path d="M 670 410 L 730 410 L 730 380" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-emerald-400 cursor-pointer" onclick="selectHardwareComponent('bomba')"/>
+
+                                <!-- Cable LED Verde D8 - Verde -->
+                                <path d="M 390 240 L 390 190 L 490 190 L 490 135 L 580 135" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-green-400 cursor-pointer" onclick="selectHardwareComponent('led_verde')"/>
+                                <!-- Cable LED Rojo D9 - Rojo -->
+                                <path d="M 410 240 L 410 180 L 500 180 L 500 235 L 580 235" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" class="opacity-80 transition duration-300 hover:stroke-red-400 cursor-pointer" onclick="selectHardwareComponent('led_rojo')"/>
+
+                                <!-- 1. Caja de la Placa Arduino (Centro Izquierda) -->
+                                <g id="board-arduino" class="cursor-pointer group" onclick="selectHardwareComponent('arduino')">
+                                    <rect x="280" y="250" width="200" height="180" rx="16" fill="#1b4d3e" stroke="#2d6a4f" stroke-width="4" class="transition duration-300 group-hover:stroke-accent-gold" id="hw-arduino-rect"/>
+                                    <!-- Pines Hembra superiores (Digitales) -->
+                                    <rect x="300" y="240" width="160" height="20" rx="3" fill="#0f2a20"/>
+                                    <!-- Pines Hembra inferiores (Analógicos/Alimentación) -->
+                                    <rect x="300" y="420" width="160" height="20" rx="3" fill="#0f2a20"/>
+                                    <!-- Microchip ATmega328P -->
+                                    <rect x="330" y="310" width="100" height="40" rx="4" fill="#111" stroke="#333" stroke-width="1"/>
+                                    <line x1="340" y1="310" x2="340" y2="305" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="360" y1="310" x2="360" y2="305" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="380" y1="310" x2="380" y2="305" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="400" y1="310" x2="400" y2="305" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="420" y1="310" x2="420" y2="305" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="340" y1="350" x2="340" y2="355" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="360" y1="350" x2="360" y2="355" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="380" y1="350" x2="380" y2="355" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="400" y1="350" x2="400" y2="355" stroke="#aaa" stroke-width="2"/>
+                                    <line x1="420" y1="350" x2="420" y2="355" stroke="#aaa" stroke-width="2"/>
+                                    <text x="380" y="335" fill="#eee" font-size="10" font-family="monospace" text-anchor="middle" font-weight="bold">ATMEGA328P</text>
+                                    
+                                    <!-- Etiquetas de Pines Clave -->
+                                    <text x="315" y="415" fill="#a8a29e" font-size="9" font-family="monospace">A0</text>
+                                    <text x="335" y="415" fill="#a8a29e" font-size="9" font-family="monospace">A1</text>
+                                    <text x="355" y="415" fill="#a8a29e" font-size="9" font-family="monospace">A2</text>
+                                    <text x="365" y="275" fill="#a8a29e" font-size="9" font-family="monospace">D7</text>
+                                    <text x="385" y="275" fill="#a8a29e" font-size="9" font-family="monospace">D8</text>
+                                    <text x="405" y="275" fill="#a8a29e" font-size="9" font-family="monospace">D9</text>
+                                    <text x="415" y="415" fill="#a8a29e" font-size="9" font-family="monospace">A4</text>
+                                    <text x="435" y="415" fill="#a8a29e" font-size="9" font-family="monospace">A5</text>
+                                    <!-- GND / 5V -->
+                                    <text x="305" y="275" fill="#ef4444" font-size="9" font-family="monospace">5V</text>
+                                    <text x="325" y="275" fill="#3b82f6" font-size="9" font-family="monospace">GND</text>
+
+                                    <!-- Título Placa -->
+                                    <text x="380" y="390" fill="#ffce69" font-size="14" font-family="sans-serif" font-weight="bold" text-anchor="middle">MICRO-DEV 328</text>
+                                    <!-- LED On integrado -->
+                                    <circle cx="295" cy="265" r="4" fill="#22c55e" filter="url(#glow-green)"/>
+                                </g>
+
+                                <!-- 2. LCD I2C Display (Superior Izquierda) -->
+                                <g id="hw-lcd" class="cursor-pointer group" onclick="selectHardwareComponent('lcd')">
+                                    <rect x="240" y="30" width="320" height="110" rx="10" fill="#333" stroke="#555" stroke-width="3" class="transition duration-300 group-hover:stroke-accent-gold" id="hw-lcd-rect"/>
+                                    <!-- Pantalla LCD fondo azul/verde retroiluminado -->
+                                    <rect x="260" y="45" width="280" height="80" rx="4" fill="#0055ff" class="transition duration-300" id="hw-lcd-screen"/>
+                                    <!-- Texto LCD dinámico -->
+                                    <text x="275" y="75" fill="#00ffcc" font-size="16" font-family="monospace" id="hw-lcd-line1" font-weight="bold">H:45%  T:24.5C</text>
+                                    <text x="275" y="105" fill="#00ffcc" font-size="16" font-family="monospace" id="hw-lcd-line2" font-weight="bold">RIEGO: APAGADO </text>
+                                    <!-- Driver I2C atrás (dibujo de pines) -->
+                                    <rect x="380" y="132" width="40" height="8" fill="#111"/>
+                                </g>
+
+                                <!-- 3. Sensor Humedad del Suelo (Inferior Izquierda) -->
+                                <g id="hw-higrometro" class="cursor-pointer group" onclick="selectHardwareComponent('higrometro')">
+                                    <rect x="40" y="450" width="140" height="120" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-blue-400" id="hw-higrometro-rect"/>
+                                    <!-- Símbolo Sensor de Humedad -->
+                                    <path d="M110 500 C110 515 95 530 80 530 C65 530 50 515 50 500 C50 480 80 460 80 460 C80 460 110 480 110 500 Z" fill="#3b82f6" fill-opacity="0.3" stroke="#3b82f6" stroke-width="2"/>
+                                    <!-- Líneas de sonda enterrada -->
+                                    <line x1="70" y1="510" x2="70" y2="550" stroke="#473e35" stroke-width="3" stroke-linecap="round"/>
+                                    <line x1="90" y1="510" x2="90" y2="550" stroke="#473e35" stroke-width="3" stroke-linecap="round"/>
+                                    <text x="110" y="480" fill="#888" font-size="10" font-family="sans-serif" text-anchor="middle">HIGRÓMETRO A0</text>
+                                    <text x="110" y="525" fill="#3b82f6" font-size="18" font-family="sans-serif" font-weight="bold" text-anchor="middle" id="hw-val-humidity">45%</text>
+                                </g>
+
+                                <!-- 4. Sensor de Temperatura TMP36 (Inferior Centro) -->
+                                <g id="hw-tmp36" class="cursor-pointer group" onclick="selectHardwareComponent('tmp36')">
+                                    <rect x="190" y="450" width="120" height="120" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-orange-400" id="hw-tmp36-rect"/>
+                                    <!-- Icono Termómetro -->
+                                    <rect x="235" y="470" width="10" height="40" rx="5" fill="#ddd" stroke="#ef4444" stroke-width="2"/>
+                                    <circle cx="240" cy="515" r="12" fill="#ef4444"/>
+                                    <rect x="238" y="480" width="4" height="30" fill="#ef4444"/>
+                                    <text x="250" y="550" fill="#888" font-size="10" font-family="sans-serif" text-anchor="middle">TEMP TMP36 A1</text>
+                                    <text x="250" y="535" fill="#ef4444" font-size="16" font-family="sans-serif" font-weight="bold" text-anchor="middle" id="hw-val-temp">24.5°C</text>
+                                </g>
+
+                                <!-- 5. Sensor de Luz LDR (Inferior Derecha-Centro) -->
+                                <g id="hw-ldr" class="cursor-pointer group" onclick="selectHardwareComponent('ldr')">
+                                    <rect x="320" y="450" width="120" height="120" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-yellow-400" id="hw-ldr-rect"/>
+                                    <!-- Icono Sol/Resistencia -->
+                                    <circle cx="380" cy="495" r="14" fill="#eab308" fill-opacity="0.2" stroke="#eab308" stroke-width="2"/>
+                                    <line x1="380" y1="475" x2="380" y2="470" stroke="#eab308" stroke-width="2"/>
+                                    <line x1="380" y1="515" x2="380" y2="520" stroke="#eab308" stroke-width="2"/>
+                                    <line x1="360" y1="495" x2="355" y2="495" stroke="#eab308" stroke-width="2"/>
+                                    <line x1="400" y1="495" x2="405" y2="495" stroke="#eab308" stroke-width="2"/>
+                                    <path d="M 368 495 L 372 490 L 376 500 L 380 490 L 384 500 L 388 495" stroke="#ef4444" stroke-width="1.5" fill="none"/>
+                                    <text x="380" y="550" fill="#888" font-size="10" font-family="sans-serif" text-anchor="middle">LUZ LDR A2</text>
+                                    <text x="380" y="535" fill="#eab308" font-size="16" font-family="sans-serif" font-weight="bold" text-anchor="middle" id="hw-val-light">60%</text>
+                                </g>
+
+                                <!-- 6. LED Verde D8 (Fila superior derecha) -->
+                                <g id="hw-led-green" class="cursor-pointer group" onclick="selectHardwareComponent('led_verde')">
+                                    <rect x="580" y="90" width="100" height="90" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-green-400" id="hw-led_verde-rect"/>
+                                    <!-- LED Verde e Resistencia física (Antiquema!) -->
+                                    <circle cx="630" cy="125" r="14" fill="#22c55e" fill-opacity="0.3" stroke="#22c55e" stroke-width="3" id="hw-svg-led-green-glow"/>
+                                    <circle cx="630" cy="125" r="9" fill="#86efac" id="hw-svg-led-green-core"/>
+                                    <!-- Pequeña resistencia -->
+                                    <rect x="620" y="152" width="20" height="8" rx="2" fill="#d1c4b4" stroke="#7a6752" stroke-width="1"/>
+                                    <line x1="624" y1="152" x2="624" y2="160" stroke="#9b8770" stroke-width="1.5"/>
+                                    <line x1="630" y1="152" x2="630" y2="160" stroke="#ef4444" stroke-width="1.5"/>
+                                    <line x1="636" y1="152" x2="636" y2="160" stroke="#9b8770" stroke-width="1.5"/>
+                                    <text x="630" y="110" fill="#888" font-size="8" font-family="sans-serif" text-anchor="middle">LED VERDE D8</text>
+                                    <text x="630" y="172" fill="#7a6752" font-size="7" font-family="sans-serif" text-anchor="middle" class="dark:text-organic-300">R limitadora: 220Ω</text>
+                                </g>
+
+                                <!-- 7. LED Rojo D9 (Fila superior derecha - 2da fila) -->
+                                <g id="hw-led-red" class="cursor-pointer group" onclick="selectHardwareComponent('led_rojo')">
+                                    <rect x="580" y="190" width="100" height="90" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-red-400" id="hw-led_rojo-rect"/>
+                                    <circle cx="630" cy="225" r="14" fill="#ef4444" fill-opacity="0.3" stroke="#ef4444" stroke-width="3" id="hw-svg-led-red-glow"/>
+                                    <circle cx="630" cy="225" r="9" fill="#fca5a5" id="hw-svg-led-red-core"/>
+                                    <!-- Pequeña resistencia -->
+                                    <rect x="620" y="252" width="20" height="8" rx="2" fill="#d1c4b4" stroke="#7a6752" stroke-width="1" id="hw-svg-led-red-resistor-box"/>
+                                    <!-- Líneas de la resistencia -->
+                                    <g id="hw-svg-led-red-resistor-bands">
+                                        <line x1="624" y1="252" x2="624" y2="260" stroke="#9b8770" stroke-width="1.5"/>
+                                        <line x1="630" y1="252" x2="630" y2="260" stroke="#ef4444" stroke-width="1.5"/>
+                                        <line x1="636" y1="252" x2="636" y2="260" stroke="#9b8770" stroke-width="1.5"/>
+                                    </g>
+                                    <text x="630" y="210" fill="#888" font-size="8" font-family="sans-serif" text-anchor="middle">LED ROJO D9</text>
+                                    <text x="630" y="272" fill="#7a6752" font-size="7" font-family="sans-serif" text-anchor="middle" id="hw-svg-led-red-resistor-text" class="dark:text-organic-300">R limitadora: 220Ω</text>
+                                </g>
+
+                                <!-- 8. Módulo Relé (Aislamiento de Potencia) (Centro Derecha) -->
+                                <g id="hw-rele" class="cursor-pointer group" onclick="selectHardwareComponent('bomba')">
+                                    <rect x="580" y="295" width="90" height="65" rx="8" fill="#1e3a8a" stroke="#2563eb" stroke-width="2" class="transition duration-300 group-hover:stroke-accent-gold" id="hw-rele-block"/>
+                                    <rect x="595" y="303" width="60" height="32" rx="4" fill="#1d4ed8" id="hw-rele-cube"/>
+                                    <!-- LED indicador del módulo relé -->
+                                    <circle cx="650" cy="310" r="3" fill="#991b1b" id="hw-rele-led"/>
+                                    <!-- Etiquetas -->
+                                    <text x="625" y="350" fill="#93c5fd" font-size="9" font-family="sans-serif" text-anchor="middle" font-weight="bold">RELÉ D7</text>
+                                    <text x="625" y="323" fill="#fff" font-size="8" font-family="sans-serif" text-anchor="middle" id="hw-rele-text">ABIERTO</text>
+                                </g>
+
+                                <!-- 9. Bomba de Agua / Motor DC (Derecha Centro-Inferior) -->
+                                <g id="hw-bomba" class="cursor-pointer group" onclick="selectHardwareComponent('bomba')">
+                                    <rect x="680" y="295" width="100" height="120" rx="12" fill="#fff" stroke="#e3d9c3" stroke-width="2" class="dark:fill-organic-800 dark:stroke-organic-700 transition duration-300 group-hover:stroke-red-400" id="hw-bomba-rect"/>
+                                    <!-- Cuerpo del motor -->
+                                    <circle cx="730" cy="345" r="24" fill="#475569" stroke="#334155" stroke-width="3"/>
+                                    <!-- Aspas del ventilador/bomba (SVG rotable!) -->
+                                    <g id="hw-svg-pump-fan" class="origin-[730px_345px]">
+                                        <path d="M730 345 L730 323 A6 6 0 0 1 736 329 Z" fill="#94a3b8"/>
+                                        <path d="M730 345 L730 367 A6 6 0 0 1 724 361 Z" fill="#94a3b8"/>
+                                        <path d="M730 345 L752 345 A6 6 0 0 1 746 351 Z" fill="#94a3b8"/>
+                                        <path d="M730 345 L708 345 A6 6 0 0 1 714 339 Z" fill="#94a3b8"/>
+                                    </g>
+                                    <circle cx="730" cy="345" r="5" fill="#ffce69"/>
+                                    <text x="730" y="392" fill="#888" font-size="8" font-family="sans-serif" text-anchor="middle">BOMBA MOTOR</text>
+                                    <text x="730" y="405" fill="#475569" font-size="8" font-family="sans-serif" text-anchor="middle" font-weight="bold" id="hw-val-bomba">OFF</text>
+                                </g>
+
+                                <!-- Textos explicativos en las esquinas -->
+                                <text x="15" y="25" fill="#888" font-size="10" font-family="sans-serif" font-weight="bold">DIAGRAMA DE CONEXIÓN FISICA</text>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- Panel de Detalles del Componente -->
+                    <div id="component-detail-card" class="bg-white rounded-2xl p-5 border border-organic-200 shadow-sm dark:bg-organic-800 dark:border-organic-700 dark:text-white transition-all duration-300">
+                        <div class="flex items-center space-x-3 mb-3">
+                            <div class="p-2 bg-organic-100 dark:bg-organic-700 rounded-lg text-organic-700 dark:text-organic-300" id="detail-icon-box">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" id="detail-icon">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h5 class="font-bold text-sm" id="detail-title">Selecciona un componente</h5>
+                                <p class="text-[11px] text-organic-600 dark:text-organic-400 font-mono" id="detail-pin">Pin de conexión: Ninguno</p>
+                            </div>
+                            <div class="ml-auto text-right">
+                                <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300" id="detail-state-badge">Valor: -</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-organic-850 dark:text-organic-200 leading-relaxed mb-1" id="detail-desc">
+                            Haz clic en los sensores, actuadores, la pantalla LCD, los LEDs o la placa Arduino del esquema interactivo para ver su descripción de cableado, la física del simulador y qué parte del código firmware de Arduino controla su comportamiento.
+                        </p>
+                        <div class="text-[10px] text-accent-gold font-semibold flex items-center space-x-1" id="detail-action-tip">
+                            <span>💡 Haz clic para enfocar y desplazar el código de Arduino correspondiente.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: C++ Code Editor (Enhanced) -->
+                <div class="lg:col-span-6 flex flex-col">
+                    <div class="bg-[#1e1b18] text-gray-300 rounded-2xl overflow-hidden border border-organic-300 shadow-lg dark:border-organic-800 flex flex-col h-full">
+                        <div class="bg-[#161311] px-5 py-3 border-b border-[#2c241f] flex justify-between items-center text-xs font-mono">
+                            <div class="flex items-center space-x-2">
+                                <span class="w-3 h-3 rounded-full bg-red-500"></span>
+                                <span class="w-3 h-3 rounded-full bg-yellow-500"></span>
+                                <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                                <span class="text-organic-500 font-bold ml-2">firmware.ino</span>
+                            </div>
+                            <span class="text-gray-500">C++ (Arduino IDE / Tinkercad)</span>
+                        </div>
+                        
+                        <!-- Panel de controles del editor -->
+                        <div class="bg-[#1a1715] px-4 py-2 border-b border-[#2c241f] flex justify-between items-center text-xs">
+                            <span class="text-gray-400">Interacción dinámica activa</span>
+                            <button onclick="resetCodeHighlights()" class="text-accent-gold hover:text-white transition font-semibold flex items-center space-x-1">
+                                <span>Limpiar Enfoque</span>
+                            </button>
+                        </div>
+
+                        <!-- Zona de código editable/desplazable -->
+                        <pre class="flex-grow text-xs font-mono overflow-y-auto console-scrollbar max-h-[620px] leading-relaxed bg-[#1b1816] text-[#e0d4c3] py-4" id="code-block-container"><code id="code-block" class="block">Cargando firmware...</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB: GUIDELINES ================= -->
+        <section id="tab-guidelines" class="hidden space-y-6">
+            <div class="bg-white rounded-2xl p-6 border border-organic-200 shadow-sm dark:bg-organic-800 dark:border-organic-700 dark:text-white prose dark:prose-invert max-w-none">
+                <div class="flex justify-between items-center border-b border-organic-200 pb-4 mb-4 dark:border-organic-700">
+                    <div>
+                        <h3 class="font-bold text-lg m-0">Guía de Seguridad Eléctrica y Cableado</h3>
+                        <p class="text-xs text-organic-600 dark:text-organic-400 m-0">Estándares para evitar fallos físicos (antiquema) en proyectos académicos.</p>
+                    </div>
+                    <a href="Guia_Conexiones_Antiquema.md" download="Guia_Conexiones_Antiquema.md" class="px-4 py-2 bg-organic-100 hover:bg-organic-200 text-organic-800 rounded-xl text-xs font-semibold transition dark:bg-organic-700 dark:text-white dark:hover:bg-organic-600 flex items-center space-x-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        <span>Descargar Guía en Markdown</span>
+                    </a>
+                </div>
+                <div id="guidelines-content" class="text-sm space-y-4">
+                    Cargando guía...
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Consola Serial Integrada (Fija al fondo) -->
+    <footer class="bg-[#191614] text-[#a4c28a] border-t border-organic-800 px-6 py-4 flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4 justify-between transition-colors select-none">
+        <div class="flex-shrink-0 flex items-center space-x-2 md:w-64">
+            <div class="w-2.5 h-2.5 rounded-full bg-[#ffce69] animate-pulse"></div>
+            <div>
+                <h4 class="text-xs font-bold text-gray-300 font-mono">CONEXIÓN SERIAL COM1</h4>
+                <p class="text-[10px] text-gray-500 font-mono">9600 Baudios | JSON Formato</p>
+            </div>
+        </div>
+
+        <!-- Terminal de Logs -->
+        <div class="flex-grow bg-[#100e0d] border border-[#2d2722] rounded-xl p-3 h-28 font-mono text-xs overflow-y-auto console-scrollbar flex flex-col justify-start space-y-1 relative" id="console-log-area">
+            <!-- Logs dinámicos -->
+        </div>
+
+        <!-- Botón Limpiar Terminal -->
+        <div class="flex-shrink-0 flex items-center justify-end">
+            <button onclick="clearConsole()" class="px-3 py-1.5 bg-[#2c241f] hover:bg-[#3d322b] text-gray-400 hover:text-white rounded-lg text-xs font-semibold font-mono transition border border-[#3e342e]">
+                Limpiar Log
+            </button>
+        </div>
+    </footer>
+
+    <!-- Lógica de Simulación de JavaScript -->
+    <script>
+        // --- Cargar Códigos ---
+        // Se inyecta el firmware para mostrar en la pestaña
+        const firmwareCode = `/**
+ * @file firmware.ino
+ * @brief Sistema de Simulación de Riego Inteligente
+ */
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+const byte PIN_HIGROMETRO = A0;
+const byte PIN_TMP36      = A1;
+const byte PIN_LDR        = A2;
+
+const byte PIN_RELE_BOMBA = 7;
+const byte PIN_LED_VERDE  = 8;
+const byte PIN_LED_ROJO   = 9;
+
+const int UMBRAL_HUMEDAD_MIN = 40; 
+const int UMBRAL_HUMEDAD_OK  = 45; 
+
+const unsigned long INTERVALO_LECTURA   = 500;  
+const unsigned long INTERVALO_SERIAL    = 1000; 
+const unsigned long INTERVALO_LCD       = 1000; 
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+int humedadPorcentaje = 0;
+float temperaturaC    = 0.0;
+int luzPorcentaje     = 0;
+bool bombaActiva      = false;
+
+unsigned long ultimoTiempoLectura = 0;
+unsigned long ultimoTiempoSerial  = 0;
+unsigned long ultimoTiempoLCD     = 0;
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(PIN_RELE_BOMBA, OUTPUT);
+  pinMode(PIN_LED_VERDE, OUTPUT);
+  pinMode(PIN_LED_ROJO, OUTPUT);
+  
+  digitalWrite(PIN_RELE_BOMBA, LOW);
+  digitalWrite(PIN_LED_VERDE, LOW);
+  digitalWrite(PIN_LED_ROJO, LOW);
+  
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+}
+
+void loop() {
+  unsigned long tiempoActual = millis();
+
+  if (tiempoActual - ultimoTiempoLectura >= INTERVALO_LECTURA) {
+    leerSensores();
+    ultimoTiempoLectura = tiempoActual;
+  }
+
+  procesarLogica();
+  actualizarActuadores();
+
+  if (tiempoActual - ultimoTiempoLCD >= INTERVALO_LCD) {
+    actualizarLCD();
+    ultimoTiempoLCD = tiempoActual;
+  }
+
+  if (tiempoActual - ultimoTiempoSerial >= INTERVALO_SERIAL) {
+    enviarTelemetriaSerial();
+    ultimoTiempoSerial = tiempoActual;
+  }
+}
+
+void leerSensores() {
+  int valorHigrometro = analogRead(PIN_HIGROMETRO);
+  humedadPorcentaje = map(valorHigrometro, 0, 1023, 0, 100);
+  humedadPorcentaje = constrain(humedadPorcentaje, 0, 100);
+
+  int valorTMP36 = analogRead(PIN_TMP36);
+  float voltaje = (valorTMP36 * 5.0) / 1024.0;
+  temperaturaC = (voltaje - 0.5) * 100.0;
+
+  int valorLDR = analogRead(PIN_LDR);
+  luzPorcentaje = map(valorLDR, 0, 1023, 0, 100);
+  luzPorcentaje = constrain(luzPorcentaje, 0, 100);
+}
+
+void procesarLogica() {
+  if (humedadPorcentaje < UMBRAL_HUMEDAD_MIN) {
+    bombaActiva = true;
+  } 
+  else if (humedadPorcentaje >= UMBRAL_HUMEDAD_OK) {
+    bombaActiva = false;
+  }
+}
+
+void actualizarActuadores() {
+  if (bombaActiva) {
+    digitalWrite(PIN_RELE_BOMBA, HIGH); 
+    digitalWrite(PIN_LED_ROJO, HIGH);   
+    digitalWrite(PIN_LED_VERDE, LOW);   
+  } else {
+    digitalWrite(PIN_RELE_BOMBA, LOW);  
+    digitalWrite(PIN_LED_ROJO, LOW);    
+    digitalWrite(PIN_LED_VERDE, HIGH);  
+  }
+}`;
+
+        // renderFirmwareCode se llamará al iniciar la página
+        // renderFirmwareCode();
+
+        const mdGuidelines = `
+        <h4 class="text-organic-800 font-bold dark:text-white">Estándares para Evitar Fallas Críticas (Validación Antiquema)</h4>
+        <p>En el prototipado físico y simulado con microcontroladores (como el ATmega328P en Arduino), es vital seguir reglas estrictas que prevengan cortocircuitos o corrientes parásitas. En Tinkercad Circuits, la omisión de resistencias limitadoras o el control de cargas pesadas directo a los pines genera alertas de sobrecorriente lógicas. Esta interfaz emula estos fenómenos educativos.</p>
+        
+        <h5 class="text-organic-700 font-semibold dark:text-organic-300 mt-4">1. Resistencia Limitadora en Diodos LED:</h5>
+        <p>Los LEDs tienen una curva de corriente exponencial. Sin una resistencia en serie, el voltaje del pin (5V) sobrepasa su caída normal (2V) forzando amperajes destructivos que queman el pin. La resistencia correcta se calcula con la Ley de Ohm: <strong>R = (Vcc - Vled) / Iled</strong>. Para un LED rojo estándar con 10mA en 5V, se requiere una resistencia de <strong>300 &Omega;</strong> (comercialmente se usa 330 &Omega; o 220 &Omega;).</p>
+        
+        <h5 class="text-organic-700 font-semibold dark:text-organic-300 mt-4">2. Aislamiento por Relé y Acoplamiento Optoelectrónico:</h5>
+        <p>Un motor de corriente continua (bomba de agua) demanda gran amperaje y genera corrientes inversas inducidas (fuerza contraelectromotriz). El uso de un <strong>módulo relé</strong> aísla físicamente los picos inductivos de potencia del microcontrolador sensible. Adicionalmente, el optoacoplador del módulo utiliza un haz interno de luz infrarroja para conmutar, eliminando todo puenteo conductor de retorno al pin digital D7.</p>
+        
+        <h5 class="text-organic-700 font-semibold dark:text-organic-300 mt-4">3. Diodo de Protección (Flyback):</h5>
+        <p>Para suprimir por completo los picos de voltaje inducidos por el bobinado del motor cuando el relé abre el circuito, es mandatorio conectar un diodo estándar de silicio (como el <strong>1N4007</strong>) en paralelo con el motor pero en polarización inversa. Esto absorbe el colapso del campo electromagnético de forma segura.</p>
+        `;
+        document.getElementById('guidelines-content').innerHTML = mdGuidelines;
+
+        // --- Estado Inicial de Simulación ---
+        let simHumedad = 45;
+        let simTemperatura = 24.5;
+        let simLuz = 60;
+        
+        let simBombaActiva = false;
+        let simModoManual = false; // false = Auto, true = Manual
+        let simBombaManualActiva = false;
+        
+        let simProteccionResistor = true; // true = seguro, false = fallo cortocircuito
+
+        // Variables de Control del Tiempo y Clima
+        let simTimeMode = 'simulated';
+        let simTimeSpeed = 3600; // 1 segundo real = 1 hora simulada
+        let simCurrentDate = new Date("2026-08-01T12:00:00");
+        let simClimateOverride = false;
+        let simSeason = 'summer';
+        let simHumedadDecimal = 45.0; // Humedad en punto flotante para física estable
+
+        // --- Integración Simulador Python y Clima Avanzado ---
+        const WEATHER_EVENTS = {
+            "DESPEJADO": {
+                name: "Soleado / Despejado",
+                icon: "☀️",
+                temp_offset: 0.0,
+                light_scale: 1.0,
+                rain_rate: 0.0,
+                description: "Cielo completamente despejado, sol directo."
+            },
+            "NUBLADO": {
+                name: "Nublado",
+                icon: "☁️",
+                temp_offset: -3.5,
+                light_scale: 0.25,
+                rain_rate: 0.0,
+                description: "Nubes densas cubren el cielo."
+            },
+            "LLOVIZNA": {
+                name: "Llovizna Constante",
+                icon: "🌧️",
+                temp_offset: -5.0,
+                light_scale: 0.1,
+                rain_rate: 0.15,
+                description: "Lluvia fina y constante humedece el suelo."
+            },
+            "TORMENTA": {
+                name: "Tormenta Eléctrica",
+                icon: "⛈️",
+                temp_offset: -8.0,
+                light_scale: 0.05,
+                rain_rate: 0.45,
+                description: "Lluvia torrencial y tormenta eléctrica activa."
+            },
+            "OLA_DE_CALOR": {
+                name: "Ola de Calor Extrema",
+                icon: "🔥",
+                temp_offset: 8.5,
+                light_scale: 1.15,
+                rain_rate: 0.0,
+                description: "Temperaturas sofocantes e insolación extrema."
+            }
+        };
+
+        let simCurrentWeatherKey = "DESPEJADO";
+        let simWeatherDuration = 360; // En minutos simulados
+        let simNoiseTemp = 0.0;
+        let simNoiseLight = 0.0;
+        let connectionMode = "embedded"; // 'embedded' o 'python'
+        let lastSyncedLogs = [];
+        let lastTickTime = Date.now();
+
+        function addLocalLog(message) {
+            const consoleArea = document.getElementById('console-log-area');
+            const now = new Date();
+            const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            
+            const logLine = document.createElement('div');
+            logLine.className = 'hover:bg-[#1e1b18] px-2 py-0.5 rounded transition font-mono flex space-x-2';
+            logLine.innerHTML = `
+                <span class="text-gray-500">[${timeStr}]</span>
+                <span class="text-[#ffce69]">SYS:</span>
+                <span class="text-emerald-400">${message}</span>
+            `;
+            consoleArea.appendChild(logLine);
+            consoleArea.scrollTop = consoleArea.scrollHeight;
+        }
+
+        function changeConnectionMode() {
+            connectionMode = document.getElementById('connection-mode').value;
+            const apiDot = document.getElementById('api-status-dot');
+            
+            if (connectionMode === 'embedded') {
+                apiDot.className = "inline-block w-2.5 h-2.5 rounded-full bg-emerald-500";
+                addLocalLog("Modo de simulación: Local (Navegador).");
+                clearPythonWarning();
+            } else {
+                apiDot.className = "inline-block w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse";
+                addLocalLog("Modo de simulación: Sincronizando con Python API...");
+                pollPythonAPI();
+            }
+        }
+
+        function pollPythonAPI() {
+            if (connectionMode !== 'python') return;
+
+            fetch('http://localhost:5000/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('api-status-dot').className = "inline-block w-2.5 h-2.5 rounded-full bg-emerald-500";
+                    clearPythonWarning();
+
+                    // Sync variables
+                    simHumedad = Math.round(data.moisture);
+                    simTemperatura = data.temperature;
+                    simLuz = Math.round(data.light);
+                    simBombaActiva = data.pump_active;
+                    simModoManual = !data.auto_mode;
+                    simBombaManualActiva = data.pump_active;
+                    simCurrentWeatherKey = data.current_weather_key;
+                    simClimateOverride = data.climate_override;
+                    simTimeSpeed = data.speed_multiplier;
+                    simCurrentDate = new Date(data.sim_time.replace(" ", "T"));
+
+                    // Sync controls/sliders
+                    document.getElementById('slider-hum').value = simHumedad;
+                    document.getElementById('slider-temp').value = simTemperatura;
+                    document.getElementById('slider-light').value = simLuz;
+                    document.getElementById('climate-override-toggle').checked = simClimateOverride;
+                    document.getElementById('mode-toggle').checked = simModoManual;
+                    
+                    // Sync weather Event active buttons in UI
+                    const keys = Object.keys(WEATHER_EVENTS);
+                    const btnIds = {
+                        "DESPEJADO": "btn-weather-despejado",
+                        "NUBLADO": "btn-weather-nublado",
+                        "LLOVIZNA": "btn-weather-llovizna",
+                        "TORMENTA": "btn-weather-tormenta",
+                        "OLA_DE_CALOR": "btn-weather-ola-de-calor"
+                    };
+                    keys.forEach(k => {
+                        const btn = document.getElementById(btnIds[k]);
+                        if (btn) {
+                            if (simCurrentWeatherKey === k) {
+                                btn.className = "py-1 text-xs font-bold rounded bg-organic-500 text-white shadow-sm border border-organic-500 transition";
+                            } else {
+                                btn.className = "py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition";
+                            }
+                        }
+                    });
+
+                    updateSpeedButtonsUI();
+
+                    const sliderTemp = document.getElementById('slider-temp');
+                    const sliderLight = document.getElementById('slider-light');
+                    if (simClimateOverride) {
+                        sliderTemp.disabled = false;
+                        sliderLight.disabled = false;
+                        sliderTemp.classList.remove('opacity-50', 'cursor-not-allowed');
+                        sliderLight.classList.remove('opacity-50', 'cursor-not-allowed');
+                    } else {
+                        sliderTemp.disabled = true;
+                        sliderLight.disabled = true;
+                        sliderTemp.classList.add('opacity-50', 'cursor-not-allowed');
+                        sliderLight.classList.add('opacity-50', 'cursor-not-allowed');
+                    }
+
+                    const btnManual = document.getElementById('btn-manual-pump');
+                    const lblMode = document.getElementById('txt-mode-label');
+                    const tipManual = document.getElementById('tip-manual');
+                    if (simModoManual) {
+                        lblMode.innerText = "Manual (Override)";
+                        btnManual.disabled = false;
+                        btnManual.classList.remove('bg-organic-300', 'text-organic-600', 'cursor-not-allowed');
+                        btnManual.classList.add('bg-organic-500', 'text-white', 'hover:bg-organic-600', 'cursor-pointer');
+                        tipManual.innerText = "Conmutar directamente la bomba de agua desde la UI.";
+                        document.getElementById('txt-btn-manual').innerText = simBombaActiva ? "DESACTIVAR RIEGO MANUAL" : "ACTIVAR RIEGO MANUAL";
+                    } else {
+                        lblMode.innerText = "Automático (Firmware)";
+                        btnManual.disabled = true;
+                        btnManual.classList.remove('bg-organic-500', 'text-white', 'hover:bg-organic-600', 'cursor-pointer');
+                        btnManual.classList.add('bg-organic-300', 'text-organic-600', 'cursor-not-allowed');
+                        tipManual.innerText = "Habilita el modo Manual para controlar directamente la bomba.";
+                    }
+
+                    actualizarInterfazUI();
+                    updateTimeAndClimate();
+                    syncPythonLogs(data.logs);
+                })
+                .catch(err => {
+                    document.getElementById('api-status-dot').className = "inline-block w-2.5 h-2.5 rounded-full bg-red-500";
+                    showPythonWarning();
+                });
+        }
+
+        function syncPythonLogs(logs) {
+            if (!logs || logs.length === 0) return;
+            
+            let isDifferent = false;
+            if (logs.length !== lastSyncedLogs.length) {
+                isDifferent = true;
+            } else {
+                for (let i = 0; i < logs.length; i++) {
+                    if (logs[i] !== lastSyncedLogs[i]) {
+                        isDifferent = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isDifferent) {
+                lastSyncedLogs = [...logs];
+                const consoleArea = document.getElementById('console-log-area');
+                consoleArea.innerHTML = '';
+                
+                logs.forEach(log => {
+                    const logLine = document.createElement('div');
+                    logLine.className = 'hover:bg-[#1e1b18] px-2 py-0.5 rounded transition font-mono flex space-x-2';
+                    
+                    const match = log.match(/^\[([^\]]+)\]\s*(.*)$/);
+                    if (match) {
+                        logLine.innerHTML = `
+                            <span class="text-gray-500">[${match[1]}]</span>
+                            <span class="text-[#ffce69]">SYS:</span>
+                            <span class="text-emerald-400">${match[2]}</span>
+                        `;
+                    } else {
+                        logLine.innerHTML = `
+                            <span class="text-emerald-400">${log}</span>
+                        `;
+                    }
+                    consoleArea.appendChild(logLine);
+                });
+                consoleArea.scrollTop = consoleArea.scrollHeight;
+            }
+        }
+
+        function sendPostRequest(path, data) {
+            if (connectionMode !== 'python') return;
+
+            fetch(`http://localhost:5000${path}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                pollPythonAPI();
+            })
+            .catch(err => {
+                console.error('Error sending control command:', err);
+            });
+        }
+
+        function showPythonWarning() {
+            let warningBox = document.getElementById('python-api-warning');
+            if (!warningBox) {
+                warningBox = document.createElement('div');
+                warningBox.id = 'python-api-warning';
+                warningBox.className = 'bg-amber-500 text-white font-bold py-2 px-4 shadow text-center text-xs animate-pulse';
+                warningBox.innerHTML = '⚠️ Conexión perdida con el Servidor Python en <code class="bg-amber-600 px-1 rounded">http://localhost:5000</code>. Ejecuta <code class="bg-amber-600 px-1 rounded">python riego_simulador.py</code> en tu terminal.';
+                
+                const safetyAlert = document.getElementById('safety-alert');
+                safetyAlert.parentNode.insertBefore(warningBox, safetyAlert.nextSibling);
+            }
+        }
+
+        function clearPythonWarning() {
+            const warningBox = document.getElementById('python-api-warning');
+            if (warningBox) {
+                warningBox.remove();
+            }
+        }
+
+        function forceWeatherEvent(key) {
+            if (connectionMode === 'python') {
+                sendPostRequest('/api/control', { force_weather: key });
+                return;
+            }
+
+            if (WEATHER_EVENTS[key]) {
+                simCurrentWeatherKey = key;
+                simClimateOverride = true;
+                document.getElementById('climate-override-toggle').checked = true;
+                toggleClimateOverride();
+                addLocalLog(`Clima FORZADO por usuario: ${WEATHER_EVENTS[key].name}`);
+                
+                // Actualizar estilo botones
+                const keys = Object.keys(WEATHER_EVENTS);
+                const btnIds = {
+                    "DESPEJADO": "btn-weather-despejado",
+                    "NUBLADO": "btn-weather-nublado",
+                    "LLOVIZNA": "btn-weather-llovizna",
+                    "TORMENTA": "btn-weather-tormenta",
+                    "OLA_DE_CALOR": "btn-weather-ola-de-calor"
+                };
+                keys.forEach(k => {
+                    const btn = document.getElementById(btnIds[k]);
+                    if (btn) {
+                        if (simCurrentWeatherKey === k) {
+                            btn.className = "py-1 text-xs font-bold rounded bg-organic-500 text-white shadow-sm border border-organic-500 transition";
+                        } else {
+                            btn.className = "py-1 text-xs font-bold rounded bg-organic-200 text-organic-800 dark:bg-organic-700 dark:text-white hover:bg-organic-300 transition";
+                        }
+                    }
+                });
+                
+                updateTimeAndClimate();
+            }
+        }
+
+        function updateWeatherEvent(elapsedMinutes) {
+            if (simClimateOverride) return;
+
+            simWeatherDuration -= elapsedMinutes;
+            if (simWeatherDuration <= 0) {
+                const keys = Object.keys(WEATHER_EVENTS);
+                const weights = [0.4, 0.3, 0.15, 0.08, 0.07];
+                
+                let r = Math.random();
+                let cumulative = 0;
+                let newKey = keys[0];
+                for (let i = 0; i < keys.length; i++) {
+                    cumulative += weights[i];
+                    if (r <= cumulative) {
+                        newKey = keys[i];
+                        break;
+                    }
+                }
+
+                if (newKey !== simCurrentWeatherKey) {
+                    const oldName = WEATHER_EVENTS[simCurrentWeatherKey].name;
+                    const newName = WEATHER_EVENTS[newKey].name;
+                    simCurrentWeatherKey = newKey;
+                    addLocalLog(`El clima cambió de ${oldName} a ${newName}.`);
+                }
+
+                simWeatherDuration = Math.floor(Math.random() * (720 - 240 + 1)) + 240;
+            }
+        }
+
+        function simulatePhysics(elapsedMinutes) {
+            const hour = simCurrentDate.getHours() + simCurrentDate.getMinutes() / 60.0 + simCurrentDate.getSeconds() / 3600.0;
+            const tempBase = 22.0 + 8.0 * Math.cos(2.0 * Math.PI * (hour - 15.0) / 24.0);
+
+            const sunrise = 6.0, sunset = 19.0;
+            let lightBase = 0.0;
+            if (hour >= sunrise && hour <= sunset) {
+                const dayLength = sunset - sunrise;
+                const relativeTime = hour - sunrise;
+                lightBase = 100.0 * Math.sin(Math.PI * relativeTime / dayLength);
+            }
+
+            const weather = WEATHER_EVENTS[simCurrentWeatherKey];
+            const tempTarget = tempBase + weather.temp_offset;
+            const lightTarget = lightBase * weather.light_scale;
+
+            simNoiseTemp = (simNoiseTemp * 0.95) + (Math.random() - 0.5) * 0.8;
+            simNoiseLight = (simNoiseLight * 0.95) + (Math.random() - 0.5) * 6.0;
+
+            simNoiseTemp = Math.max(-3.0, Math.min(3.0, simNoiseTemp));
+            simNoiseLight = Math.max(-15.0, Math.min(15.0, simNoiseLight));
+
+            simTemperatura = Math.max(-15.0, Math.min(50.0, tempTarget + simNoiseTemp));
+            simLuz = Math.max(0.0, Math.min(100.0, lightTarget + simNoiseLight));
+        }
+
+        function simTick() {
+            if (connectionMode === 'python') {
+                return;
+            }
+
+            const now = Date.now();
+            const elapsedRealSeconds = (now - lastTickTime) / 1000.0;
+            lastTickTime = now;
+
+            if (simTimeMode === 'simulated' && simTimeSpeed > 0) {
+                const simulatedSecondsStep = elapsedRealSeconds * simTimeSpeed;
+                simCurrentDate = new Date(simCurrentDate.getTime() + simulatedSecondsStep * 1000);
+            } else if (simTimeMode === 'real') {
+                simCurrentDate = new Date();
+            }
+
+            const elapsedSimMinutes = (simTimeMode === 'simulated') ? (elapsedRealSeconds * simTimeSpeed / 60.0) : (elapsedRealSeconds / 60.0);
+
+            if (!simClimateOverride) {
+                updateWeatherEvent(elapsedSimMinutes);
+                simulatePhysics(elapsedSimMinutes);
+            } else {
+                simHumedad = parseInt(document.getElementById('slider-hum').value);
+                simTemperatura = parseFloat(document.getElementById('slider-temp').value);
+                simLuz = parseInt(document.getElementById('slider-light').value);
+            }
+
+            if (!simClimateOverride) {
+                let moistureChange = 0.0;
+                const weather = WEATHER_EVENTS[simCurrentWeatherKey];
+
+                if (simBombaActiva) {
+                    moistureChange += 1.8 * elapsedSimMinutes;
+                }
+                if (weather.rain_rate > 0) {
+                    moistureChange += weather.rain_rate * elapsedSimMinutes;
+                }
+                if (!simBombaActiva && weather.rain_rate === 0) {
+                    const baseEvap = 0.015;
+                    const tempFactor = 0.003 * Math.max(0.0, simTemperatura);
+                    const lightFactor = 0.001 * simLuz;
+                    let evapRate = baseEvap + tempFactor + lightFactor;
+                    if (simCurrentWeatherKey === "OLA_DE_CALOR") {
+                        evapRate *= 1.5;
+                    }
+                    moistureChange -= evapRate * elapsedSimMinutes;
+                }
+
+                simHumedadDecimal += moistureChange;
+                simHumedadDecimal = Math.max(0.0, Math.min(100.0, simHumedadDecimal));
+                simHumedad = Math.round(simHumedadDecimal);
+                
+                document.getElementById('slider-hum').value = simHumedad;
+                document.getElementById('slider-temp').value = simTemperatura.toFixed(1);
+                document.getElementById('slider-light').value = simLuz;
+            }
+
+            document.getElementById('lbl-sim-hum').innerText = `${simHumedad}%`;
+            document.getElementById('lbl-sim-temp').innerText = `${simTemperatura.toFixed(1)} °C`;
+            document.getElementById('lbl-sim-light').innerText = `${simLuz}%`;
+
+            ejecutarLógicaMicrocontrolador();
+            updateTimeAndClimate();
+        }
+
+        // Variables para gráfico
+        let telemetryChart = null;
+        let telemetryHistory = {
+            labels: [],
+            humidity: [],
+            temp: [],
+            light: []
+        };
+        let tickCounter = 0;
+
+        // --- Navegación de Pestañas ---
+        function switchTab(tabName) {
+            const tabs = ['dashboard', 'simulator', 'firmware', 'guidelines'];
+            tabs.forEach(t => {
+                document.getElementById(`tab-${t}`).classList.add('hidden');
+                const btn = document.getElementById(`btn-tab-${t}`);
+                if (btn) {
+                    btn.classList.remove('bg-white', 'text-organic-900', 'shadow-sm', 'font-semibold', 'dark:bg-organic-700', 'dark:text-white');
+                    btn.classList.add('text-organic-600', 'hover:text-organic-900', 'dark:text-organic-400', 'dark:hover:text-white');
+                }
+            });
+
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`btn-tab-${tabName}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('text-organic-600', 'hover:text-organic-900', 'dark:text-organic-400', 'dark:hover:text-white');
+                activeBtn.classList.add('bg-white', 'text-organic-900', 'shadow-sm', 'font-semibold', 'dark:bg-organic-700', 'dark:text-white');
+            }
+        }
+
+        // --- Modo Oscuro ---
+        function toggleDarkMode() {
+            document.documentElement.classList.toggle('dark');
+            const isDark = document.documentElement.classList.contains('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        }
+
+        // Carga inicial de tema
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        }
+
+        // --- Lógica del Reloj y Clima ---
+        function getSeason(date) {
+            const month = date.getMonth(); // 0-11
+            if (month >= 2 && month <= 4) return 'spring';
+            if (month >= 5 && month <= 7) return 'summer';
+            if (month >= 8 && month <= 10) return 'autumn';
+            return 'winter';
+        }
+
+        function calculateClimate(date, seasonOverride = null) {
+            const season = seasonOverride || getSeason(date);
+            const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+            
+            let tempAvg, tempSwing, sunrise, sunset, maxLight;
+            switch (season) {
+                case 'spring':
+                    tempAvg = 18; tempSwing = 7; sunrise = 6.0; sunset = 18.0; maxLight = 85;
+                    break;
+                case 'summer':
+                    tempAvg = 28; tempSwing = 9; sunrise = 5.0; sunset = 20.0; maxLight = 100;
+                    break;
+                case 'autumn':
+                    tempAvg = 14; tempSwing = 6; sunrise = 6.5; sunset = 18.0; maxLight = 75;
+                    break;
+                case 'winter':
+                    tempAvg = 7; tempSwing = 5; sunrise = 7.5; sunset = 17.5; maxLight = 60;
+                    break;
+            }
+            
+            // Intensidad de la luz solar (ciclo diurno)
+            let light = 0;
+            if (hour >= sunrise && hour <= sunset) {
+                const dayLength = sunset - sunrise;
+                const relativeTime = hour - sunrise;
+                light = maxLight * Math.sin(Math.PI * relativeTime / dayLength);
+            }
+            
+            // Temperatura diurna (pico a las 15:00, mínimo a las 03:00)
+            const temp = tempAvg + tempSwing * Math.cos(2 * Math.PI * (hour - 15) / 24);
+            
+            // Ruido sutil para realismo visual en el gráfico
+            const noiseTemp = (Math.random() - 0.5) * 0.4;
+            const noiseLight = (Math.random() - 0.5) * 2;
+            
+            return {
+                temp: Math.min(125, Math.max(-40, temp + (simTimeSpeed <= 3600 ? noiseTemp : 0))),
+                light: Math.min(100, Math.max(0, Math.round(light + (simTimeSpeed <= 3600 ? noiseLight : 0))))
+            };
+        }
+
+        function updateTimeAndClimate() {
+            const timeSpan = document.getElementById('sim-clock-time');
+            const dateSpan = document.getElementById('sim-clock-date');
+            const seasonSpan = document.getElementById('sim-clock-season');
+            const skySpan = document.getElementById('sim-clock-sky');
+            const hourScrubber = document.getElementById('slider-scrub-hour');
+            const lblScrubHour = document.getElementById('lbl-scrub-hour');
+            
+            const activeSeason = simTimeMode === 'real' ? getSeason(simCurrentDate) : simSeason;
+            let seasonName = '';
+            let seasonIcon = '';
+            
+            switch (activeSeason) {
+                case 'spring': seasonName = 'Primavera'; seasonIcon = '🌸'; break;
+                case 'summer': seasonName = 'Verano'; seasonIcon = '☀️'; break;
+                case 'autumn': seasonName = 'Otoño'; seasonIcon = '🍁'; break;
+                case 'winter': seasonName = 'Invierno'; seasonIcon = '❄️'; break;
+            }
+            seasonSpan.innerText = `${seasonIcon} ${seasonName}`;
+            
+            const seasonColors = {
+                spring: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+                summer: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+                autumn: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
+                winter: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+            };
+            seasonSpan.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${seasonColors[activeSeason]}`;
+
+            // Actualizar hora y fecha
+            const pad = (num) => num.toString().padStart(2, '0');
+            timeSpan.innerText = `${pad(simCurrentDate.getHours())}:${pad(simCurrentDate.getMinutes())}:${pad(simCurrentDate.getSeconds())}`;
+            
+            const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+            dateSpan.innerText = `${pad(simCurrentDate.getDate())} de ${monthNames[simCurrentDate.getMonth()]} de ${simCurrentDate.getFullYear()}`;
+            
+            // Icono de día o noche
+            const hour = simCurrentDate.getHours();
+            skySpan.innerText = (hour >= 6 && hour < 18) ? '☀️' : '🌙';
+            
+            // Desplazador de horas en simulado
+            if (simTimeMode === 'simulated') {
+                hourScrubber.value = hour;
+                lblScrubHour.innerText = `${pad(hour)}:00`;
+            }
+
+            // Actualizar widget de clima
+            const weather = WEATHER_EVENTS[simCurrentWeatherKey];
+            if (weather) {
+                document.getElementById('weather-status-icon').innerText = weather.icon;
+                document.getElementById('weather-status-name').innerText = weather.name;
+                document.getElementById('weather-status-desc').innerText = weather.description;
+            }
+
+            // Aplicar clima calculado si no está anulado (manual) y no estamos en modo Python
+            if (connectionMode !== 'python' && !simClimateOverride) {
+                const climate = calculateClimate(simCurrentDate, simTimeMode === 'real' ? null : simSeason);
+                document.getElementById('slider-temp').value = climate.temp.toFixed(1);
+                document.getElementById('slider-light').value = climate.light;
+                updateSimulatedValues();
+            }
+        }
+
+        function scrubHour() {
+            if (simTimeMode !== 'simulated') return;
+            const hourVal = parseInt(document.getElementById('slider-scrub-hour').value);
+            if (connectionMode === 'python') {
+                const targetDate = new Date(simCurrentDate);
+                targetDate.setHours(hourVal);
+                targetDate.setMinutes(0);
+                targetDate.setSeconds(0);
+                const formatTime = targetDate.getFullYear() + "-" + 
+                    String(targetDate.getMonth()+1).padStart(2, '0') + "-" + 
+                    String(targetDate.getDate()).padStart(2, '0') + " " + 
+                    String(targetDate.getHours()).padStart(2, '0') + ":" + 
+                    String(targetDate.getMinutes()).padStart(2, '0') + ":" + 
+                    String(targetDate.getSeconds()).padStart(2, '0');
+                return;
+            }
+            simCurrentDate.setHours(hourVal);
+            simCurrentDate.setMinutes(0);
+            simCurrentDate.setSeconds(0);
+            updateTimeAndClimate();
+        }
+
+        function setTimeMode(mode) {
+            if (connectionMode === 'python') {
+                addLocalLog("El modo de tiempo se controla en el simulador de Python.");
+                return;
+            }
+            simTimeMode = mode;
+            const btnReal = document.getElementById('btn-time-real');
+            const btnSim = document.getElementById('btn-time-sim');
+            const speedSelector = document.getElementById('speed-selector');
+            const seasonSelector = document.getElementById('season-selector');
+            const hourScrubber = document.getElementById('slider-scrub-hour');
+            
+            if (mode === 'real') {
+                simCurrentDate = new Date();
+                btnReal.className = "py-2 px-3 text-xs font-bold rounded-lg transition-all bg-white text-organic-900 shadow-sm dark:bg-organic-700 dark:text-white";
+                btnSim.className = "py-2 px-3 text-xs font-bold rounded-lg transition-all text-organic-600 dark:text-organic-400";
+                
+                hourScrubber.disabled = true;
+                hourScrubber.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                Array.from(speedSelector.children).forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                });
+                
+                Array.from(seasonSelector.children).forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                });
+            } else {
+                btnSim.className = "py-2 px-3 text-xs font-bold rounded-lg transition-all bg-white text-organic-900 shadow-sm dark:bg-organic-700 dark:text-white";
+                btnReal.className = "py-2 px-3 text-xs font-bold rounded-lg transition-all text-organic-600 dark:text-organic-400";
+                
+                hourScrubber.disabled = false;
+                hourScrubber.classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                Array.from(speedSelector.children).forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                });
+                
+                Array.from(seasonSelector.children).forEach(btn => {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                });
+                
+                updateSpeedButtonsUI();
+                updateSeasonButtonsUI();
+            }
+            
+            updateTimeAndClimate();
+        }
+
+        function setSimSpeed(speed) {
+            if (simTimeMode !== 'simulated') return;
+            if (connectionMode === 'python') {
+                sendPostRequest('/api/control', { speed_multiplier: speed });
+                return;
+            }
+            simTimeSpeed = speed;
+            updateSpeedButtonsUI();
+        }
+
+        function updateSpeedButtonsUI() {
+            const speeds = [0, 1, 60, 3600, 86400];
+            const ids = ['btn-speed-pause', 'btn-speed-1x', 'btn-speed-60x', 'btn-speed-3600x', 'btn-speed-86400x'];
+            
+            speeds.forEach((s, idx) => {
+                const btn = document.getElementById(ids[idx]);
+                if (btn) {
+                    if (simTimeSpeed === s) {
+                        btn.className = "flex-1 py-1.5 text-[10px] font-bold rounded-lg bg-white text-organic-900 shadow-sm dark:bg-organic-700 dark:text-white transition";
+                    } else {
+                        btn.className = "flex-1 py-1.5 text-[10px] font-bold rounded-lg text-organic-600 dark:text-organic-400 hover:bg-organic-200 dark:hover:bg-organic-700 transition";
+                    }
+                }
+            });
+        }
+
+        function setSimSeason(season) {
+            if (simTimeMode !== 'simulated') return;
+            if (connectionMode === 'python') {
+                addLocalLog("La estación del año se controla en el simulador de Python.");
+                return;
+            }
+            simSeason = season;
+            
+            const seasonMonths = { spring: 2, summer: 5, autumn: 8, winter: 11 };
+            simCurrentDate.setMonth(seasonMonths[season]);
+            
+            updateSeasonButtonsUI();
+            updateTimeAndClimate();
+        }
+
+        function updateSeasonButtonsUI() {
+            const seasons = ['spring', 'summer', 'autumn', 'winter'];
+            const ids = ['btn-season-spring', 'btn-season-summer', 'btn-season-autumn', 'btn-season-winter'];
+            
+            seasons.forEach((s, idx) => {
+                const btn = document.getElementById(ids[idx]);
+                if (btn) {
+                    if (simSeason === s) {
+                        btn.className = "py-1.5 text-[10px] font-bold rounded-lg bg-organic-500 text-white shadow-sm border border-organic-500";
+                    } else {
+                        btn.className = "py-1.5 text-[10px] font-bold rounded-lg border border-organic-200 text-organic-600 dark:border-organic-700 dark:text-organic-400 hover:bg-organic-50 dark:hover:bg-organic-850";
+                    }
+                }
+            });
+        }
+
+        function toggleClimateOverride() {
+            simClimateOverride = document.getElementById('climate-override-toggle').checked;
+            if (connectionMode === 'python') {
+                sendPostRequest('/api/control', { climate_override: simClimateOverride });
+                return;
+            }
+            
+            const sliderTemp = document.getElementById('slider-temp');
+            const sliderLight = document.getElementById('slider-light');
+            const badgeTemp = document.getElementById('lbl-temp-auto-status');
+            const badgeLight = document.getElementById('lbl-light-auto-status');
+            
+            if (simClimateOverride) {
+                sliderTemp.disabled = false;
+                sliderLight.disabled = false;
+                sliderTemp.classList.remove('opacity-50', 'cursor-not-allowed');
+                sliderLight.classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                badgeTemp.innerText = "🎛️ Manual";
+                badgeTemp.className = "text-[9px] text-organic-800 dark:text-organic-200 font-semibold bg-organic-200 dark:bg-organic-600 px-1.5 py-0.5 rounded ml-2";
+                badgeLight.innerText = "🎛️ Manual";
+                badgeLight.className = "text-[9px] text-organic-800 dark:text-organic-200 font-semibold bg-organic-200 dark:bg-organic-600 px-1.5 py-0.5 rounded ml-2";
+            } else {
+                sliderTemp.disabled = true;
+                sliderLight.disabled = true;
+                sliderTemp.classList.add('opacity-50', 'cursor-not-allowed');
+                sliderLight.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                badgeTemp.innerText = "🕒 Tiempo";
+                badgeTemp.className = "text-[9px] text-organic-500 dark:text-organic-400 font-semibold bg-organic-100 dark:bg-organic-700 px-1.5 py-0.5 rounded ml-2";
+                badgeLight.innerText = "🕒 Tiempo";
+                badgeLight.className = "text-[9px] text-organic-500 dark:text-organic-400 font-semibold bg-organic-100 dark:bg-organic-700 px-1.5 py-0.5 rounded ml-2";
+                addLocalLog("Restablecido control climático dinámico natural.");
+            }
+            
+            updateTimeAndClimate();
+        }
+
+        // --- Simulación de Hardware Lógica ---
+        function updateSimulatedValues() {
+            simHumedad = parseInt(document.getElementById('slider-hum').value);
+            simTemperatura = parseFloat(document.getElementById('slider-temp').value);
+            simLuz = parseInt(document.getElementById('slider-light').value);
+            
+            // Actualizar etiquetas en la pestaña del simulador
+            document.getElementById('lbl-sim-hum').innerText = `${simHumedad}%`;
+            document.getElementById('lbl-sim-temp').innerText = `${simTemperatura.toFixed(1)} °C`;
+            document.getElementById('lbl-sim-light').innerText = `${simLuz}%`;
+
+            if (connectionMode === 'python') {
+                let data = {};
+                if (!simModoManual) {
+                    data.moisture = simHumedad;
+                }
+                if (simClimateOverride) {
+                    data.temperature = simTemperatura;
+                    data.light = simLuz;
+                }
+                if (Object.keys(data).length > 0) {
+                    sendPostRequest('/api/control', data);
+                }
+                return;
+            }
+            
+            ejecutarLógicaMicrocontrolador();
+        }
+
+        function toggleIrrigationMode() {
+            simModoManual = document.getElementById('mode-toggle').checked;
+            
+            if (connectionMode === 'python') {
+                sendPostRequest('/api/control', { auto_mode: !simModoManual });
+                return;
+            }
+            
+            const btnManual = document.getElementById('btn-manual-pump');
+            const lblMode = document.getElementById('txt-mode-label');
+            const tipManual = document.getElementById('tip-manual');
+
+            if (simModoManual) {
+                lblMode.innerText = "Manual (Override)";
+                btnManual.disabled = false;
+                btnManual.classList.remove('bg-organic-300', 'text-organic-600', 'cursor-not-allowed');
+                btnManual.classList.add('bg-organic-500', 'text-white', 'hover:bg-organic-600', 'cursor-pointer');
+                tipManual.innerText = "Haz clic para conmutar directamente la bomba de agua.";
+            } else {
+                lblMode.innerText = "Automático (Firmware)";
+                btnManual.disabled = true;
+                btnManual.classList.remove('bg-organic-500', 'text-white', 'hover:bg-organic-600', 'cursor-pointer');
+                btnManual.classList.add('bg-organic-300', 'text-organic-600', 'cursor-not-allowed');
+                tipManual.innerText = "Habilita el modo Manual para controlar directamente la bomba.";
+                simBombaManualActiva = false;
+                document.getElementById('txt-btn-manual').innerText = "ACTIVAR RIEGO MANUAL";
+            }
+            
+            addLocalLog(`Modo de riego cambiado a: ${simModoManual ? 'Manual (Override)' : 'Automático (Firmware)'}`);
+            ejecutarLógicaMicrocontrolador();
+        }
+
+        function toggleManualPump() {
+            if (!simModoManual) return;
+            if (connectionMode === 'python') {
+                sendPostRequest('/api/control', { pump_active: !simBombaActiva });
+                return;
+            }
+            simBombaManualActiva = !simBombaManualActiva;
+            document.getElementById('txt-btn-manual').innerText = simBombaManualActiva ? "DESACTIVAR RIEGO MANUAL" : "ACTIVAR RIEGO MANUAL";
+            addLocalLog(`Bomba conmutada manualmente: ${simBombaManualActiva ? 'ENCENDIDA' : 'APAGADA'}`);
+            ejecutarLógicaMicrocontrolador();
+        }
+
+        function toggleResistorProtection() {
+            simProteccionResistor = document.getElementById('resistor-toggle').checked;
+            const alertDiv = document.getElementById('safety-alert');
+            
+            if (simProteccionResistor) {
+                alertDiv.classList.add('hidden');
+                document.getElementById('resistor-toggle').checked = true;
+            } else {
+                // Al apagar el protector de resistencia, si la bomba está activa, se detecta el corto
+                evaluarAlertaCorto();
+            }
+        }
+
+        function evaluarAlertaCorto() {
+            const alertDiv = document.getElementById('safety-alert');
+            // Si la bomba está encendida (LED Rojo D9 brilla) y no hay resistor, ¡corto!
+            if (simBombaActiva && !simProteccionResistor) {
+                alertDiv.classList.remove('hidden');
+            } else {
+                alertDiv.classList.add('hidden');
+            }
+        }
+
+        // --- Lógica del Microcontrolador emulada ---
+        function ejecutarLógicaMicrocontrolador() {
+            // Lógica con Histéresis:
+            // Auto: Riego si humedad < 40%, apagar si alcanza >= 45%
+            if (!simModoManual) {
+                if (simHumedad < 40) {
+                    simBombaActiva = true;
+                } else if (simHumedad >= 45) {
+                    simBombaActiva = false;
+                }
+            } else {
+                // Modo manual override
+                simBombaActiva = simBombaManualActiva;
+            }
+
+            evaluarAlertaCorto();
+            actualizarInterfazUI();
+        }
+
+        function actualizarInterfazUI() {
+            // 1. Dashboard: Métricas de texto
+            document.getElementById('txt-humidity').innerText = simHumedad;
+            document.getElementById('txt-temperature').innerText = simTemperatura.toFixed(1);
+            document.getElementById('txt-light').innerText = simLuz;
+
+            // 2. Dashboad: Circular Progress Ring Humedad
+            // Circunferencia del círculo r=28 es 2 * pi * 28 = 175.92
+            const circumference = 175.92;
+            const offset = circumference - (simHumedad / 100) * circumference;
+            document.getElementById('circle-humidity').style.strokeDashoffset = offset;
+
+            // 3. Dashboard: Estado y Etiquetas
+            // Humedad
+            const lblHum = document.getElementById('lbl-humidity');
+            if (simHumedad < 40) {
+                lblHum.innerText = "Seco (Crítico)";
+                lblHum.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+            } else if (simHumedad >= 40 && simHumedad <= 60) {
+                lblHum.innerText = "Adecuada";
+                lblHum.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+            } else {
+                lblHum.innerText = "Muy Húmedo";
+                lblHum.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300";
+            }
+
+            // Temperatura
+            const lblTemp = document.getElementById('lbl-temperature');
+            if (simTemperatura < 15) {
+                lblTemp.innerText = "Frío";
+                lblTemp.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300";
+            } else if (simTemperatura >= 15 && simTemperatura <= 30) {
+                lblTemp.innerText = "Templado";
+                lblTemp.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+            } else {
+                lblTemp.innerText = "Caliente (Estrés)";
+                lblTemp.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+            }
+
+            // Luz
+            const lblLight = document.getElementById('lbl-light');
+            if (simLuz < 30) {
+                lblLight.innerText = "Sombra";
+                lblLight.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+            } else if (simLuz >= 30 && simLuz <= 75) {
+                lblLight.innerText = "Semisombra";
+                lblLight.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300";
+            } else {
+                lblLight.innerText = "Sol Directo";
+                lblLight.className = "inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300";
+            }
+
+            // Bomba de Agua Estado e Animación
+            const cardPump = document.getElementById('pump-card');
+            const txtPumpState = document.getElementById('txt-pump-state');
+            const pulsePump = document.getElementById('led-pump-pulse');
+            const fanMotor = document.getElementById('svg-motor-fan');
+            const fanMotorContainer = document.getElementById('motor-graphic-container');
+
+            if (simBombaActiva) {
+                txtPumpState.innerText = "ACTIVO";
+                pulsePump.className = "inline-block w-3 h-3 rounded-full bg-accent-red animate-ping";
+                fanMotor.classList.add('animate-spin-custom');
+                fanMotorContainer.className = "p-3 bg-red-100 text-accent-red rounded-full transition dark:bg-red-950";
+                cardPump.classList.add('border-accent-red', 'shadow-md');
+            } else {
+                txtPumpState.innerText = "APAGADO";
+                pulsePump.className = "inline-block w-3 h-3 rounded-full bg-organic-400";
+                fanMotor.classList.remove('animate-spin-custom');
+                fanMotorContainer.className = "p-3 bg-organic-100 text-organic-400 rounded-full transition dark:bg-organic-700";
+                cardPump.classList.remove('border-accent-red', 'shadow-md');
+            }
+
+            // 4. Simulador: Pantalla LCD 16x2
+            document.getElementById('lcd-line1').innerText = `H:${simHumedad}%  T:${simTemperatura.toFixed(1)}C`;
+            document.getElementById('lcd-line2').innerText = simBombaActiva ? "RIEGO: ACTIVO  " : "RIEGO: APAGADO ";
+
+            // 5. Simulador: LEDs Visuales (Pin 8 = Verde, Pin 9 = Rojo)
+            const ledGreen = document.getElementById('led-green-visual');
+            const ledRed = document.getElementById('led-red-visual');
+
+            if (simBombaActiva) {
+                ledGreen.className = "w-6 h-6 rounded-full bg-organic-300 border border-organic-400 transition duration-200"; // apagado
+                ledRed.className = "w-6 h-6 rounded-full bg-accent-red border border-red-600 led-glow-red transition duration-200"; // encendido
+            } else {
+                ledGreen.className = "w-6 h-6 rounded-full bg-accent-green border border-green-600 led-glow-green transition duration-200"; // encendido
+                ledRed.className = "w-6 h-6 rounded-full bg-organic-300 border border-organic-400 transition duration-200"; // apagado
+            }
+
+            // 6. Simulador: Relé y Motor
+            const releBox = document.getElementById('rele-box');
+            const releIn = document.getElementById('rele-led-in');
+            const releContact = document.getElementById('rele-contact-no');
+            const releBadge = document.getElementById('rele-state-badge');
+            
+            const simFan = document.getElementById('svg-sim-fan');
+            const simFanContainer = document.getElementById('sim-motor-fan');
+            const motorBadge = document.getElementById('motor-state-badge');
+
+            if (simBombaActiva) {
+                // Relé cerrado
+                releBox.classList.remove('bg-blue-800');
+                releBox.classList.add('bg-blue-900', 'border-accent-gold');
+                releIn.className = "w-2.5 h-2.5 rounded-full bg-red-500 shadow-sm"; // LED activo
+                releContact.innerText = "NA: ── ● (CERRADO)";
+                releBadge.innerText = "CERRADO (D7 = HIGH)";
+                releBadge.className = "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300";
+
+                // Motor en marcha
+                simFan.classList.add('animate-spin-custom');
+                simFanContainer.className = "p-3 bg-red-100 text-accent-red rounded-full border-2 border-red-400 transition dark:bg-red-950 dark:border-red-900";
+                motorBadge.innerText = "RIEGANDO (~3200 RPM)";
+                motorBadge.className = "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+            } else {
+                // Relé abierto
+                releBox.classList.remove('bg-blue-900', 'border-accent-gold');
+                releBox.classList.add('bg-blue-800');
+                releIn.className = "w-2.5 h-2.5 rounded-full bg-red-950"; // LED inactivo
+                releContact.innerText = "NA: ──";
+                releBadge.innerText = "ABIERTO (D7 = LOW)";
+                releBadge.className = "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-organic-300 text-organic-700 dark:bg-organic-700 dark:text-organic-300";
+
+                // Motor detenido
+                simFan.classList.remove('animate-spin-custom');
+                simFanContainer.className = "p-3 bg-white rounded-full text-organic-400 dark:bg-organic-800 border-2 border-organic-300 dark:border-organic-600 transition";
+                motorBadge.innerText = "DETENIDO";
+                motorBadge.className = "inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-organic-300 text-organic-700 dark:bg-organic-700 dark:text-organic-300";
+            }
+            
+            // Sincronizar esquema de hardware interactivo
+            actualizarHardwareSVG();
+        }
+
+        // --- Gráfico de Historial en Tiempo Real ---
+        function initChart() {
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+            telemetryChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: telemetryHistory.labels,
+                    datasets: [
+                        {
+                            label: 'Humedad (%)',
+                            borderColor: '#b4a18a',
+                            backgroundColor: 'rgba(180, 161, 138, 0.1)',
+                            borderWidth: 2,
+                            data: telemetryHistory.humidity,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Temperatura (°C)',
+                            borderColor: '#e76f51',
+                            backgroundColor: 'rgba(231, 111, 81, 0.1)',
+                            borderWidth: 2,
+                            data: telemetryHistory.temp,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Luz (%)',
+                            borderColor: '#ffce69',
+                            backgroundColor: 'rgba(255, 206, 105, 0.1)',
+                            borderWidth: 2,
+                            data: telemetryHistory.light,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: -10,
+                            max: 110,
+                            ticks: {
+                                color: '#7a6752'
+                            },
+                            grid: {
+                                color: 'rgba(180, 161, 138, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#7a6752',
+                                maxRotation: 0
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#7a6752',
+                                font: {
+                                    family: 'Outfit',
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function addChartData() {
+            if (!telemetryChart) return;
+
+            const now = new Date();
+            const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            
+            telemetryHistory.labels.push(timeStr);
+            telemetryHistory.humidity.push(simHumedad);
+            telemetryHistory.temp.push(simTemperatura);
+            telemetryHistory.light.push(simLuz);
+
+            // Mantener solo los últimos 15 datos
+            if (telemetryHistory.labels.length > 15) {
+                telemetryHistory.labels.shift();
+                telemetryHistory.humidity.shift();
+                telemetryHistory.temp.shift();
+                telemetryHistory.light.shift();
+            }
+
+            telemetryChart.update();
+        }
+
+        // --- Terminal Serial logs ---
+        function addConsoleLog() {
+            const consoleArea = document.getElementById('console-log-area');
+            const now = new Date();
+            const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            
+            // Construir JSON simulando Serial.println de Arduino
+            const data = {
+                hum: simHumedad,
+                temp: parseFloat(simTemperatura.toFixed(1)),
+                ldr: simLuz,
+                bomba: simBombaActiva ? 1 : 0
+            };
+            
+            const logLine = document.createElement('div');
+            logLine.className = 'hover:bg-[#1e1b18] px-2 py-0.5 rounded transition font-mono flex space-x-2';
+            logLine.innerHTML = `
+                <span class="text-gray-500">[${timeStr}]</span>
+                <span class="text-[#ffce69]">TX:</span>
+                <span class="text-emerald-400">${JSON.stringify(data)}</span>
+            `;
+            
+            consoleArea.appendChild(logLine);
+            
+            // Auto scroll al fondo
+            consoleArea.scrollTop = consoleArea.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console-log-area').innerHTML = '';
+        }
+
+        // Copiar Firmware
+        function copyFirmware() {
+            navigator.clipboard.writeText(firmwareCode).then(() => {
+                alert("Firmware copiado al portapapeles correctamente. ¡Listo para pegar en Tinkercad!");
+            }).catch(err => {
+                console.error("Error al copiar firmware: ", err);
+            });
+        }
+
+        // ============================================================================
+        // CAPA DE INTERACCIÓN DE HARDWARE Y FIRMWARE C++ (Diseño basado en image4.png)
+        // ============================================================================
+        // Mapeo interactivo de componentes de hardware a líneas de código y explicaciones
+        const componentCodeMap = {
+            'higrometro': {
+                lines: [9, 72, 73, 74, 75],
+                title: 'Sensor Higrómetro (Humedad de Suelo)',
+                pin: 'Pin A0 (Entrada Analógica)',
+                desc: 'Mide la humedad del suelo. El microcontrolador lee la señal analógica del sensor en el pin A0 (rango 0-1023) y la convierte a un porcentaje (0-100%) usando la función <code>map()</code> y la limita con <code>constrain()</code> para asegurar valores válidos.'
+            },
+            'tmp36': {
+                lines: [10, 77, 78, 79],
+                title: 'Sensor de Temperatura (TMP36)',
+                pin: 'Pin A1 (Entrada Analógica)',
+                desc: 'Mide la temperatura ambiente. El voltaje analógico recibido en A1 se convierte a grados Celsius aplicando la fórmula de resolución del conversor ADC de 10 bits: <code>(voltaje - 0.5) * 100.0</code>.'
+            },
+            'ldr': {
+                lines: [11, 81, 82, 83],
+                title: 'Sensor de Luz (Fotorresistencia LDR)',
+                pin: 'Pin A2 (Entrada Analógica)',
+                desc: 'Mide la luminosidad ambiental. La fotorresistencia en el circuito divisor de tensión genera un nivel de voltaje en el pin A2 que se mapea de 0% (oscuridad) a 100% (pleno sol).'
+            },
+            'bomba': {
+                lines: [13, 37, 41, 95, 96, 97, 101],
+                title: 'Bomba de Agua (Aislamiento con Relé)',
+                pin: 'Pin D7 (Salida Digital)',
+                desc: 'Actuador de riego. Se controla digitalmente desde el pin 7 (D7) activando un módulo relé para aislar eléctricamente la lógica del microcontrolador (5V) del motor DC y su fuente de poder externa de mayor amperaje.'
+            },
+            'led_verde': {
+                lines: [14, 38, 42, 99, 103],
+                title: 'LED Verde (Estado Adecuado)',
+                pin: 'Pin D8 (Salida Digital)',
+                desc: 'Indicador visual de estado óptimo. Se enciende cuando la humedad del suelo es adecuada y la bomba está inactiva. Está cableado en serie con una resistencia limitadora de 220Ω.'
+            },
+            'led_rojo': {
+                lines: [15, 39, 43, 98, 102],
+                title: 'LED Rojo (Alerta / Riego Activo)',
+                pin: 'Pin D9 (Salida Digital)',
+                desc: 'Indicador visual de alerta o riego. Brilla cuando la bomba de agua está encendida. Para evitar quemar el pin D9 del microcontrolador, se debe instalar obligatoriamente una resistencia limitadora de 220Ω en serie.'
+            },
+            'lcd': {
+                lines: [24, 45, 46, 47, 62],
+                title: 'Pantalla LCD 16x2 (I2C)',
+                pin: 'Pines SDA (A4) / SCL (A5)',
+                desc: 'Muestra información en tiempo real localmente. Utiliza el bus I2C mediante las librerías <code>Wire</code> y <code>LiquidCrystal_I2C</code>, permitiendo controlar la pantalla con solo 4 hilos físicos (VCC, GND, SDA y SCL).'
+            },
+            'arduino': {
+                lines: [1, 2, 3, 4, 5, 29, 30, 31, 32, 63, 64, 65, 87, 88, 89],
+                title: 'Microcontrolador (ATmega328P / Arduino)',
+                pin: 'Placa Base de Desarrollo',
+                desc: 'Cerebro del sistema. Ejecuta secuencialmente la capa de lectura (entradas analógicas), la lógica de control sin bloqueos temporales (usando <code>millis()</code> en lugar de <code>delay()</code>) y la activación coordinada de actuadores y visualización.'
+            }
+        };
+
+        let selectedHardwareComponentId = null;
+
+        // Función para escapar caracteres HTML
+        function escapeHTML(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // Resaltado de sintaxis C++ para Arduino IDE
+        function highlightCPP(code) {
+            return code.split('\n').map((line, idx) => {
+                let highlighted = escapeHTML(line);
+                
+                // Comentarios de línea (// ...)
+                let commentIndex = highlighted.indexOf('//');
+                let commentText = '';
+                if (commentIndex !== -1) {
+                    commentText = `<span class="text-stone-500 font-normal italic">${highlighted.substring(commentIndex)}</span>`;
+                    highlighted = highlighted.substring(0, commentIndex);
+                }
+                
+                // Directivas del preprocesador
+                highlighted = highlighted.replace(/(#include|#define)\b/g, '<span class="text-amber-500 font-bold">$1</span>');
+                
+                // Tipos de datos y calificadores
+                const types = ['const', 'byte', 'int', 'float', 'bool', 'void', 'unsigned long', 'setup', 'loop', 'if', 'else', 'return'];
+                types.forEach(t => {
+                    const regex = new RegExp('\\b' + t + '\\b', 'g');
+                    highlighted = highlighted.replace(regex, `<span class="text-orange-400 font-semibold">${t}</span>`);
+                });
+                
+                // Funciones de API Arduino y LCD
+                const api = ['pinMode', 'digitalWrite', 'analogRead', 'delay', 'millis', 'map', 'constrain', 'Serial', 'begin', 'print', 'println', 'init', 'backlight', 'clear', 'setCursor', 'LiquidCrystal_I2C', 'Wire'];
+                api.forEach(f => {
+                    const regex = new RegExp('\\b' + f + '\\b', 'g');
+                    highlighted = highlighted.replace(regex, `<span class="text-emerald-400 font-medium">${f}</span>`);
+                });
+                
+                // Constantes predefinidas
+                const constants = ['HIGH', 'LOW', 'OUTPUT', 'INPUT', 'A0', 'A1', 'A2', 'A4', 'A5'];
+                constants.forEach(c => {
+                    const regex = new RegExp('\\b' + c + '\\b', 'g');
+                    highlighted = highlighted.replace(regex, `<span class="text-red-400 font-bold">${c}</span>`);
+                });
+                
+                // Volver a unir comentario de línea
+                if (commentIndex !== -1) {
+                    highlighted = highlighted + commentText;
+                }
+                
+                // Comentarios de bloque completos
+                let trimmed = line.trim();
+                if (trimmed.startsWith('/*') || trimmed.startsWith('*') || trimmed.endsWith('*/')) {
+                    return `<span class="text-stone-500 font-normal italic">${escapeHTML(line)}</span>`;
+                }
+                
+                return highlighted;
+            });
+        }
+
+        // Renderizar el código C++ con numeración de líneas
+        function renderFirmwareCode() {
+            const highlightedLines = highlightCPP(firmwareCode);
+            let codeHTML = '';
+            highlightedLines.forEach((line, idx) => {
+                const lineNum = idx + 1;
+                codeHTML += `<div id="code-line-${lineNum}" class="code-line px-4 py-0.5 hover:bg-[#2a2420] transition-colors cursor-pointer flex font-mono text-xs" onclick="highlightLineFromCode(${lineNum})">` +
+                            `<span class="w-10 text-stone-600 select-none text-right pr-3 border-r border-[#2d2217] mr-3 font-semibold">${lineNum}</span>` +
+                            `<span class="code-text select-text whitespace-pre text-[#e0d4c3]">${line}</span>` +
+                            `</div>`;
+            });
+            document.getElementById('code-block').innerHTML = codeHTML;
+        }
+
+        // Limpiar todos los resaltados del código y del esquema SVG
+        function resetCodeHighlights() {
+            // Limpiar líneas
+            const lines = document.querySelectorAll('.code-line');
+            lines.forEach(l => l.classList.remove('active-highlight'));
+            
+            // Limpiar selección de rectángulos en SVG
+            const components = ['higrometro', 'tmp36', 'ldr', 'bomba', 'led_verde', 'led_rojo', 'lcd', 'arduino'];
+            components.forEach(c => {
+                const rect = document.getElementById(`hw-${c}-rect`);
+                if (rect) {
+                    rect.setAttribute('stroke', rect.id === 'hw-arduino-rect' ? '#2d6a4f' : rect.id === 'hw-lcd-rect' ? '#555' : '#e3d9c3');
+                    rect.setAttribute('stroke-width', rect.id === 'hw-arduino-rect' ? '4' : rect.id === 'hw-lcd-rect' ? '3' : '2');
+                }
+            });
+            
+            selectedHardwareComponentId = null;
+            
+            // Restablecer detalles
+            document.getElementById('detail-title').innerText = "Selecciona un componente";
+            document.getElementById('detail-pin').innerText = "Pin de conexión: Ninguno";
+            document.getElementById('detail-state-badge').innerText = "Valor: -";
+            document.getElementById('detail-state-badge').className = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300";
+            document.getElementById('detail-desc').innerHTML = "Haz clic en los sensores, actuadores, la pantalla LCD, los LEDs o la placa Arduino del esquema interactivo para ver su descripción de cableado, la física del simulador y qué parte del código firmware de Arduino controla su comportamiento.";
+            document.getElementById('detail-icon').innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>`;
+        }
+
+        // Seleccionar componente desde el esquema interactivo
+        function selectHardwareComponent(id, scrollCode = true) {
+            resetCodeHighlights();
+            selectedHardwareComponentId = id;
+            const comp = componentCodeMap[id];
+            if (!comp) return;
+
+            // Resaltar en SVG (borde dorado del componente seleccionado)
+            const rect = document.getElementById(`hw-${id}-rect`);
+            if (rect) {
+                rect.setAttribute('stroke', '#ffce69');
+                rect.setAttribute('stroke-width', '4');
+            }
+
+            // Resaltar líneas en el editor
+            comp.lines.forEach(l => {
+                const lineEl = document.getElementById(`code-line-${l}`);
+                if (lineEl) {
+                    lineEl.classList.add('active-highlight');
+                }
+            });
+
+            // Desplazar editor a la primera línea del componente
+            if (scrollCode && comp.lines.length > 0) {
+                const minLine = Math.min(...comp.lines);
+                const firstLine = document.getElementById(`code-line-${minLine}`);
+                if (firstLine) {
+                    firstLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+
+            // Actualizar tarjeta de detalles
+            document.getElementById('detail-title').innerText = comp.title;
+            document.getElementById('detail-pin').innerText = `Pin de conexión: ${comp.pin}`;
+            document.getElementById('detail-desc').innerHTML = comp.desc;
+            
+            // Iconos vectoriales para la tarjeta de detalles
+            const iconSvg = document.getElementById('detail-icon');
+            if (id === 'higrometro') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>`;
+            } else if (id === 'tmp36') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6a2 2 0 00-2-2H5a2 2 0 00-2 2v13a3 3 0 003 3h3M9 19a3 3 0 01-3-3m3 3h3a3 3 0 003-3V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v10a3 3 0 003 3"/>`;
+            } else if (id === 'ldr') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>`;
+            } else if (id === 'bomba') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18.5M12 12v9m-4-4h8"/>`;
+            } else if (id === 'led_verde' || id === 'led_rojo') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>`;
+            } else if (id === 'lcd') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>`;
+            } else if (id === 'arduino') {
+                iconSvg.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/>`;
+            }
+            
+            // Forzar actualización inmediata de lectura en vivo
+            actualizarHardwareSVG();
+        }
+
+        // Seleccionar componente haciendo clic en una línea de código
+        function highlightLineFromCode(lineNum) {
+            let foundComponent = null;
+            for (const [key, comp] of Object.entries(componentCodeMap)) {
+                if (comp.lines.includes(lineNum)) {
+                    foundComponent = key;
+                    break;
+                }
+            }
+            
+            if (foundComponent) {
+                selectHardwareComponent(foundComponent, false); // Seleccionar en SVG, no desplazar el código de nuevo
+            } else {
+                // Si la línea no tiene componente asignado, solo resaltarla individualmente
+                resetCodeHighlights();
+                const lineEl = document.getElementById(`code-line-${lineNum}`);
+                if (lineEl) {
+                    lineEl.classList.add('active-highlight');
+                }
+            }
+        }
+
+        // Actualizar el esquema de hardware SVG y los estados dinámicos
+        function actualizarHardwareSVG() {
+            // 1. Pantalla LCD SVG
+            const line1Text = `H:${simHumedad}%  T:${simTemperatura.toFixed(1)}C`;
+            const line2Text = simBombaActiva ? "RIEGO: ACTIVO  " : "RIEGO: APAGADO ";
+            const svgLcdLine1 = document.getElementById('hw-lcd-line1');
+            const svgLcdLine2 = document.getElementById('hw-lcd-line2');
+            if (svgLcdLine1) svgLcdLine1.textContent = line1Text;
+            if (svgLcdLine2) svgLcdLine2.textContent = line2Text;
+
+            // 2. Valores en los Sensores SVG
+            const svgValHum = document.getElementById('hw-val-humidity');
+            const svgValTemp = document.getElementById('hw-val-temp');
+            const svgValLight = document.getElementById('hw-val-light');
+            if (svgValHum) svgValHum.textContent = `${simHumedad}%`;
+            if (svgValTemp) svgValTemp.textContent = `${simTemperatura.toFixed(1)}°C`;
+            if (svgValLight) svgValLight.textContent = `${simLuz}%`;
+
+            // 3. LED Verde D8
+            const svgLedGreenGlow = document.getElementById('hw-svg-led-green-glow');
+            const svgLedGreenCore = document.getElementById('hw-svg-led-green-core');
+            if (simBombaActiva) {
+                // LED Apagado
+                if (svgLedGreenGlow) {
+                    svgLedGreenGlow.setAttribute('fill', '#9b8770');
+                    svgLedGreenGlow.setAttribute('fill-opacity', '0.2');
+                }
+                if (svgLedGreenCore) svgLedGreenCore.setAttribute('fill', '#d1c4b4');
+            } else {
+                // LED Encendido (Verde)
+                if (svgLedGreenGlow) {
+                    svgLedGreenGlow.setAttribute('fill', '#22c55e');
+                    svgLedGreenGlow.setAttribute('fill-opacity', '0.4');
+                    svgLedGreenGlow.setAttribute('filter', 'url(#glow-green)');
+                }
+                if (svgLedGreenCore) svgLedGreenCore.setAttribute('fill', '#86efac');
+            }
+
+            // 4. LED Rojo D9 y Resistencia (Protección)
+            const svgLedRedGlow = document.getElementById('hw-svg-led-red-glow');
+            const svgLedRedCore = document.getElementById('hw-svg-led-red-core');
+            const svgRedResistorBox = document.getElementById('hw-svg-led-red-resistor-box');
+            const svgRedResistorBands = document.getElementById('hw-svg-led-red-resistor-bands');
+            const svgRedResistorText = document.getElementById('hw-svg-led-red-resistor-text');
+
+            if (!simProteccionResistor) {
+                // FALLA CORTOCIRCUITO (Sin Resistencia)
+                if (svgRedResistorBox) svgRedResistorBox.setAttribute('fill', '#ef4444');
+                if (svgRedResistorBands) svgRedResistorBands.style.display = 'none';
+                if (svgRedResistorText) {
+                    svgRedResistorText.textContent = "SIN RESISTENCIA (0Ω)";
+                    svgRedResistorText.setAttribute('fill', '#ef4444');
+                    svgRedResistorText.setAttribute('font-weight', 'bold');
+                }
+            } else {
+                // Normal
+                if (svgRedResistorBox) svgRedResistorBox.setAttribute('fill', '#d1c4b4');
+                if (svgRedResistorBands) svgRedResistorBands.style.display = 'block';
+                if (svgRedResistorText) {
+                    svgRedResistorText.textContent = "R limitadora: 220Ω";
+                    svgRedResistorText.setAttribute('fill', '#7a6752');
+                    svgRedResistorText.removeAttribute('font-weight');
+                }
+            }
+
+            if (simBombaActiva) {
+                // LED Encendido (Rojo)
+                if (svgLedRedGlow) {
+                    svgLedRedGlow.setAttribute('fill', '#ef4444');
+                    svgLedRedGlow.setAttribute('fill-opacity', '0.5');
+                    svgLedRedGlow.setAttribute('filter', 'url(#glow-red)');
+                }
+                if (svgLedRedCore) svgLedRedCore.setAttribute('fill', '#fca5a5');
+            } else {
+                // LED Apagado
+                if (svgLedRedGlow) {
+                    svgLedRedGlow.setAttribute('fill', '#9b8770');
+                    svgLedRedGlow.setAttribute('fill-opacity', '0.2');
+                }
+                if (svgLedRedCore) svgLedRedCore.setAttribute('fill', '#d1c4b4');
+            }
+
+            // 5. Relé D7 y Bomba de Agua
+            const svgReleBlock = document.getElementById('hw-rele-block');
+            const svgReleCube = document.getElementById('hw-rele-cube');
+            const svgReleLed = document.getElementById('hw-rele-led');
+            const svgReleText = document.getElementById('hw-rele-text');
+            const svgValBomba = document.getElementById('hw-val-bomba');
+            const svgPumpFan = document.getElementById('hw-svg-pump-fan');
+
+            if (simBombaActiva) {
+                if (svgReleBlock) {
+                    svgReleBlock.setAttribute('fill', '#1d3557');
+                    svgReleBlock.setAttribute('stroke', '#ffce69');
+                }
+                if (svgReleCube) svgReleCube.setAttribute('fill', '#457b9d');
+                if (svgReleLed) svgReleLed.setAttribute('fill', '#22c55e'); // Led Verde (Cerrado)
+                if (svgReleText) svgReleText.textContent = "CERRADO";
+                if (svgValBomba) svgValBomba.textContent = "ON (3200 RPM)";
+                if (svgPumpFan) svgPumpFan.classList.add('animate-spin-custom');
+            } else {
+                if (svgReleBlock) {
+                    svgReleBlock.setAttribute('fill', '#1e3a8a');
+                    svgReleBlock.setAttribute('stroke', '#2563eb');
+                }
+                if (svgReleCube) svgReleCube.setAttribute('fill', '#1d4ed8');
+                if (svgReleLed) svgReleLed.setAttribute('fill', '#991b1b'); // Led Rojo (Abierto)
+                if (svgReleText) svgReleText.textContent = "ABIERTO";
+                if (svgValBomba) svgValBomba.textContent = "OFF";
+                if (svgPumpFan) svgPumpFan.classList.remove('animate-spin-custom');
+            }
+
+            // 6. Actualizar Tarjeta de Detalles si hay selección
+            if (selectedHardwareComponentId) {
+                let activeValue = "-";
+                let badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300";
+
+                if (selectedHardwareComponentId === 'higrometro') {
+                    activeValue = `${simHumedad}%`;
+                    if (simHumedad < 40) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+                    else if (simHumedad >= 40 && simHumedad <= 60) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+                    else badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300";
+                } 
+                else if (selectedHardwareComponentId === 'tmp36') {
+                    activeValue = `${simTemperatura.toFixed(1)}°C`;
+                    if (simTemperatura < 15) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300";
+                    else if (simTemperatura >= 15 && simTemperatura <= 30) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+                    else badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";
+                } 
+                else if (selectedHardwareComponentId === 'ldr') {
+                    activeValue = `${simLuz}%`;
+                    if (simLuz < 30) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-200 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+                    else if (simLuz >= 30 && simLuz <= 75) badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300";
+                    else badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300";
+                } 
+                else if (selectedHardwareComponentId === 'bomba') {
+                    activeValue = simBombaActiva ? "ON (Riego)" : "OFF (Detenido)";
+                    badgeClass = simBombaActiva 
+                        ? "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                        : "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300";
+                } 
+                else if (selectedHardwareComponentId === 'led_verde') {
+                    activeValue = !simBombaActiva ? "ON (Verde)" : "OFF";
+                    badgeClass = !simBombaActiva 
+                        ? "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                        : "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300";
+                } 
+                else if (selectedHardwareComponentId === 'led_rojo') {
+                    activeValue = simBombaActiva ? "ON (Rojo)" : "OFF";
+                    badgeClass = simBombaActiva 
+                        ? "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                        : "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-organic-100 dark:bg-organic-700 text-organic-700 dark:text-organic-300";
+                } 
+                else if (selectedHardwareComponentId === 'lcd') {
+                    activeValue = "BUS I2C: OK";
+                    badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+                } 
+                else if (selectedHardwareComponentId === 'arduino') {
+                    activeValue = "SISTEMA ONLINE";
+                    badgeClass = "text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+                }
+
+                document.getElementById('detail-state-badge').innerText = `Valor: ${activeValue}`;
+                document.getElementById('detail-state-badge').className = badgeClass;
+            }
+        }
+
+        // --- Ciclo de Ejecución Periódico ---
+        window.onload = function() {
+            // Inicializar sliders e interfaz
+            updateSimulatedValues();
+            initChart();
+            renderFirmwareCode();
+            selectHardwareComponent('higrometro', false);
+            
+            // Actualizar telemetría cada 1 segundo (sincronizado con INTERVALO_SERIAL del firmware)
+            setInterval(() => {
+                addChartData();
+                addConsoleLog();
+            }, 1000);
+            
+            // Ciclo de ruido sutil en los sensores simulados (para que sea dinámico)
+            setInterval(() => {
+                if (simModoManual === false) {
+                    // Si el riego está activo, la humedad del suelo empieza a subir gradualmente
+                    if (simBombaActiva) {
+                        const sliderHum = document.getElementById('slider-hum');
+                        let currentVal = parseInt(sliderHum.value);
+                        if (currentVal < 100) {
+                            sliderHum.value = currentVal + 1; // Incrementa humedad
+                            updateSimulatedValues();
+                        }
+                    } else {
+                        // De lo contrario, se seca lentamente
+                        const sliderHum = document.getElementById('slider-hum');
+                        let currentVal = parseInt(sliderHum.value);
+                        if (currentVal > 15 && Math.random() > 0.7) {
+                            sliderHum.value = currentVal - 1; // Se seca
+                            updateSimulatedValues();
+                        }
+                    }
+                }
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
